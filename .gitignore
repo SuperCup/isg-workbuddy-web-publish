@@ -1,0 +1,12 @@
+# ── Python 编译缓存 ──
+__pycache__/
+*.pyc
+
+# ── 凭据/会话(双保险:即使误拷入本目录也不入库) ──
+ismartgo_*.json
+ismartgo_captcha.txt
+ismartgo_login.log
+
+# ── 系统文件 ──
+.DS_Store
+Thumbs.db

@@ -1,0 +1,65 @@
+{
+  "name": "web-packaging-assistant",
+  "version": "1.2.0",
+  "description": "Help users package frontend projects into deployable ZIP files for the ismartgo static hosting platform, ensuring correct relative paths, WeChat/WeCom share cards via OG tags, and platform-compatible build configuration.",
+  "author": {
+    "name": "WorkBuddy",
+    "email": ""
+  },
+  "agents": [
+    "./agents/web-packaging-assistant.md"
+  ],
+  "skills": [
+    "./skills/ismartgo-token"
+  ],
+  "expertType": "agent",
+  "agentName": "web-packaging-assistant",
+  "displayName": {
+    "en": "WEB Deployment Agent",
+    "zh": "WEB部署Agent"
+  },
+  "profession": {
+    "en": "WEB Deployment Agent",
+    "zh": "WEB部署Agent"
+  },
+  "displayDescription": {
+    "en": "Packages frontend projects into platform-compliant ZIP files, auto-checks relative paths, configures WeChat/WeCom share cards, and uploads in one click.",
+    "zh": "打包前端项目为规范ZIP文件，自动检查路径配置，配置微信/企微分享卡片，一键上传托管平台。"
+  },
+  "avatar": "avatars/expert.png",
+  "categoryId": "02-Engineering",
+  "defaultInitPrompt": {
+    "zh": "帮我打包这个前端项目并上传到平台",
+    "en": "Package this frontend project and upload it to the platform"
+  },
+  "plugin": "web-packaging-assistant",
+  "tags": [
+    {
+      "en": "Frontend Packaging",
+      "zh": "前端打包"
+    },
+    {
+      "en": "Static Deployment",
+      "zh": "静态部署"
+    },
+    {
+      "en": "Build Optimization",
+      "zh": "构建优化"
+    }
+  ],
+  "quickPrompts": [
+    {
+      "en": "Package this frontend project and upload it to the platform",
+      "zh": "帮我打包这个前端项目并上传到平台"
+    },
+    {
+      "en": "Check if my project configuration meets the deployment requirements",
+      "zh": "检查我的项目配置是否符合部署要求"
+    },
+    {
+      "en": "My page is deployed but WeChat still shows a plain link, help me fix it",
+      "zh": "页面已部署但微信仍只显示链接，帮我排查"
+    }
+  ],
+  "sharedBy": "与大明一起成长"
+}
