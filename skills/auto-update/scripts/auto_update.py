@@ -56,9 +56,23 @@ def log(msg: str):
     print(msg, flush=True)
 
 
-def get_expert_root() -> Path:
-    """定位专家包根目录(本脚本位于 <root>/skills/auto-update/scripts/)"""
-    return Path(__file__).resolve().parents[3]
+# 专家包根标记文件:位于专家包根目录,更新前必须校验存在,
+# 防止脚本被放置/解析到异常路径时误删用户文件(安全防呆)
+ROOT_MARKER = ".expert-root-marker"
+
+
+def get_expert_root(require_marker: bool = False) -> Path:
+    """定位专家包根目录(本脚本位于 <root>/skills/auto-update/scripts/)
+
+    require_marker=True 时校验根目录存在 .expert-root-marker,
+    不存在则抛异常拒绝执行(防误删)。
+    """
+    root = Path(__file__).resolve().parents[3]
+    if require_marker and not (root / ROOT_MARKER).exists():
+        raise RuntimeError(
+            f"专家包根目录校验失败(缺少 {ROOT_MARKER}): {root} — 已拒绝执行更新,请检查安装完整性"
+        )
+    return root
 
 
 def get_current_user_id() -> str | None:
@@ -150,7 +164,7 @@ def apply_update(src_dir: Path) -> int:
     核心:逐文件复制覆盖(失败才计入致命失败);
     清理:尽力而为(删除旧文件/空目录失败不影响更新成功,最多残留无用文件)。
     """
-    root = get_expert_root()
+    root = get_expert_root(require_marker=True)
     fail_count = 0
 
     def is_excluded(rel: Path) -> bool:
@@ -236,6 +250,12 @@ def cmd_update() -> int:
     if len(sys.argv) > 2:
         log("NOT_AUTHOR_NO_BRANCH")
         return 0
+    # 安全防呆:更新前先校验专家包根(防止误判路径导致误删)
+    try:
+        get_expert_root(require_marker=True)
+    except Exception as e:
+        log(f"ERROR:{e}")
+        return 1
     tmp = Path(tempfile.mkdtemp(prefix="wp-dl-"))
     try:
         src_dir, remote_ver = fetch_remote_package()
