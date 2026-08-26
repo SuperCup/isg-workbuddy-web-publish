@@ -145,22 +145,57 @@ def fetch_remote_package() -> tuple:
 
 
 def apply_update(src_dir: Path) -> int:
-    """用新包内容覆盖专家包,返回复制失败的文件数"""
+    """用新包内容覆盖专家包。
+
+    核心:逐文件复制覆盖(失败才计入致命失败);
+    清理:尽力而为(删除旧文件/空目录失败不影响更新成功,最多残留无用文件)。
+    """
     root = get_expert_root()
     fail_count = 0
-    for item in src_dir.iterdir():
-        if item.name in EXCLUDE_NAMES:
+
+    def is_excluded(rel: Path) -> bool:
+        return any(part in EXCLUDE_NAMES for part in rel.parts)
+
+    # 1. 核心:覆盖/新增 src 中的文件
+    for rel in [p.relative_to(src_dir) for p in src_dir.rglob("*") if p.is_file()]:
+        if is_excluded(rel):
             continue
-        dst = root / item.name
+        s, d = src_dir / rel, root / rel
         try:
-            if item.is_dir():
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(item, dst)
-            else:
-                shutil.copy2(item, dst)
+            d.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(s, d)
         except Exception:
             fail_count += 1
+
+    # 2. 清理(尽力而为,不阻断):删除 src 已不存在的多余文件
+    for p in list(root.rglob("*")):
+        if not p.is_file():
+            continue
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+        if is_excluded(rel):
+            continue
+        if not (src_dir / rel).exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+    # 3. 清理(尽力而为,不阻断):删除多余空目录
+    for d in sorted([p for p in root.rglob("*") if p.is_dir()], reverse=True):
+        try:
+            rel = d.relative_to(root)
+        except ValueError:
+            continue
+        if is_excluded(rel):
+            continue
+        try:
+            if not any(d.iterdir()):
+                d.rmdir()
+        except Exception:
+            pass
     return fail_count
 
 
