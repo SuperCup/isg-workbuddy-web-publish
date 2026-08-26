@@ -12,6 +12,21 @@ Agent 型（单个 AI 专家）
 - 对话收集分享标题、描述、小图（300×300、≤10KB），注入极简 4 个 OG 标签（无 wecom-cli）
 - 上传后 curl 校验 HTML/图片可达性，交付带 `?v=` 的分享链以规避微信缓存
 - 通过 `ismartgo-token` Skill 自动获取上传 Token
+- **自动更新**：非作者用户使用时，自动从 GitHub 生产分支(main)检查并拉取最新版本，更新后提醒重启生效
+
+## 自动更新（v1.3.0 起）
+
+- **作者 userId（写死）**：`e266ae24-3f86-4af8-9ca6-b9218cd6845f`，作者本人不触发更新
+- 非作者用户：仅可获取**生产环境(main)**，不可切换分支；每次使用前自动检查 `.update-version.json` 版本，有更新则下载覆盖本地专家包
+- 更新来源：`https://github.com/SuperCup/isg-workbuddy-web-publish` 的 main 分支（zip 下载，免登录、无 API 限流）
+- 更新完成后请重启 WorkBuddy 生效
+
+### 作者发布流程（每次发布必须执行）
+
+1. 修改代码后,更新专家包根目录 `.update-version.json` 的 `version`（如 `1.4.0`）与 `updatedAt`
+2. 同步更新 `plugin.json` 的 `version`
+3. 提交推送到 `main`（生产）分支,可选同步 `pre`/`test`
+4. 打新 tag：`git tag v1.4.0 && git push origin main --tags`
 
 ## 使用示例
 
@@ -43,4 +58,5 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.3.0`：新增 auto-update 自动更新机制(非作者用户从 main 分支自动更新);打包命令排除 __pycache__;加入 Git 版本管理
 - `1.1.0`：去掉 wecom-cli/Sheet；对话收集分享信息；统一小图规格；强化「已部署仍不出卡」排查；补充公众号 JS-SDK 可选说明
