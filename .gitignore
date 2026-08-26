@@ -6,6 +6,8 @@ __pycache__/
 ismartgo_*.json
 ismartgo_captcha.txt
 ismartgo_login.log
+github_token.json
+.git-credentials
 
 # ── 系统文件 ──
 .DS_Store
