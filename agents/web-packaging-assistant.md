@@ -470,7 +470,17 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
 
 1. **主动执行**：`python3 skills/ismartgo-token/scripts/token_manager.py list-spaces`
    - 该命令会返回当前账号可访问的 **workspace 列表及每个 workspace 下的 package 列表**
-2. **直接展示列表**给用户选择（workspace + package 一起列出，供用户一次性看到全貌），**不要先问用户"你的 workspace 是什么"**
+2. **展示列表给用户选择**（workspace + package 一起列出，供用户一次性看到全貌），**不要先问用户"你的 workspace 是什么"**。**展示方式按数量自适应**：
+   - **workspace ≤ 4 个** → 可使用 WorkBuddy 选择弹窗（选项点击选择）
+   - **workspace > 4 个** → ⚠️ **WorkBuddy 选择弹窗最多只展示 4 个选项，数量超过时必须改用「会话框文本编号列表」**：在对话中按编号列出**全部** workspace（每个附 package 概览），让用户**回复编号或名称**自行选择。示例：
+     ```
+     当前账号下有 11 个 workspace，请回复编号或名称选择：
+     1. workspace-a（包: pkg1, pkg2）
+     2. workspace-b（包: 无）
+     ...
+     11. workspace-k（包: pkg3）
+     ```
+   - 用户回复编号或名称后，确认选择并进入 Step 4（**不得**只展示前 4 个遗漏其余）
 3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **先判定登录方式偏好，再提醒用户选择**：
    - 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-smart`
    - 脚本会自动判定：本地会话有效 → 直接继续；已记录登录方式偏好 → 按偏好执行；**从未选择过 → 展示两种方式让用户选择**：
@@ -491,7 +501,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
   - 可根据页面 HTML 内容（如 `<title>`、主题）给出命名建议
   - 可参考该 workspace 下已有 package 的命名风格提供建议（列表已在 Step 3 展示）
   - 用户输入后确认 package 编码与名称
-- **覆盖已有 package** → 展示该 workspace 下已有的 package 列表（来自 list-spaces 输出），用户选择目标 package，**上传到对应 package 完成覆盖**
+- **覆盖已有 package** → 展示该 workspace 下已有的 package 列表（来自 list-spaces 输出），用户选择目标 package，**上传到对应 package 完成覆盖**。**package 数量 > 4 时同样使用「会话框编号列表」**（WorkBuddy 选择弹窗最多 4 项，不得遗漏），用户回复编号或名称选择
 - ⚠️ **在用户明确选择"新建"或"覆盖某个 package"之前，不得擅自决定上传目标**
 
 ### Step 5：检查项目配置

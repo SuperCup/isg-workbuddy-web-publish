@@ -58,5 +58,6 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.3.1`：workspace/package 选择交互改为数量自适应——超过 4 个时在会话框列出全部选项(编号列表)供用户选择(WorkBuddy 选择弹窗上限 4 项)
 - `1.3.0`：新增 auto-update 自动更新机制(非作者用户从 main 分支自动更新);打包命令排除 __pycache__;加入 Git 版本管理
 - `1.1.0`：去掉 wecom-cli/Sheet；对话收集分享信息；统一小图规格；强化「已部署仍不出卡」排查；补充公众号 JS-SDK 可选说明
