@@ -147,10 +147,11 @@ def get_local_version() -> dict:
     return {}
 
 
-def _write_local_branch(branch: str, version: str = "") -> None:
+def _write_local_branch(branch: str) -> None:
     """更新成功后, 将实际来源分支写回本地 .update-version.json 的 branch 字段。
     包内版本文件的 branch 可能是作者发布时写死的 main, 不代表用户实际更新通道;
-    此函数确保本地记录反映真实分支(main/pre), 避免"显示分支与实际不符"。"""
+    此函数确保本地记录反映真实分支(main/pre), 避免"显示分支与实际不符"。
+    只改 branch, version 保持 apply_update 覆盖后的包内版本。"""
     vf = get_expert_root() / VERSION_FILE
     data = {}
     if vf.exists():
@@ -159,8 +160,6 @@ def _write_local_branch(branch: str, version: str = "") -> None:
         except Exception:
             data = {}
     data["branch"] = branch
-    if version:
-        data["version"] = version
     try:
         vf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
@@ -316,9 +315,10 @@ def cmd_update() -> int:
             return 0
         fail = apply_update(src_dir)
         # 更新成功后, 把实际来源分支写回本地版本记录(branch 字段),
-        # 保证本地 .update-version.json 的 branch 反映真实通道(而非包内写死的 main)
+        # 保证本地 .update-version.json 的 branch 反映真实通道(而非包内写死的 main)。
+        # 注意: 只写 branch, version 以 apply_update 刚覆盖的包内版本为准(不得用更新前的 local_ver 覆盖)。
         if fail == 0:
-            _write_local_branch(branch, local_ver.get("version"))
+            _write_local_branch(branch)
     except Exception as e:
         log(f"ERROR:更新失败({e})")
         return 1
