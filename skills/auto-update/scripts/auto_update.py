@@ -147,6 +147,26 @@ def get_local_version() -> dict:
     return {}
 
 
+def _write_local_branch(branch: str, version: str = "") -> None:
+    """更新成功后, 将实际来源分支写回本地 .update-version.json 的 branch 字段。
+    包内版本文件的 branch 可能是作者发布时写死的 main, 不代表用户实际更新通道;
+    此函数确保本地记录反映真实分支(main/pre), 避免"显示分支与实际不符"。"""
+    vf = get_expert_root() / VERSION_FILE
+    data = {}
+    if vf.exists():
+        try:
+            data = json.loads(vf.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["branch"] = branch
+    if version:
+        data["version"] = version
+    try:
+        vf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def download_zip(dest: Path, branch: str = DEFAULT_BRANCH) -> Path:
     """下载指定分支 zip 到临时目录,返回 zip 路径(带重试)"""
     zip_path = dest / "update.zip"
@@ -295,6 +315,10 @@ def cmd_update() -> int:
             log("UP_TO_DATE")
             return 0
         fail = apply_update(src_dir)
+        # 更新成功后, 把实际来源分支写回本地版本记录(branch 字段),
+        # 保证本地 .update-version.json 的 branch 反映真实通道(而非包内写死的 main)
+        if fail == 0:
+            _write_local_branch(branch, local_ver.get("version"))
     except Exception as e:
         log(f"ERROR:更新失败({e})")
         return 1
