@@ -73,7 +73,10 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
   python3 skills/auto-update/scripts/auto_update.py update --channel pre
   ```
 - **规则**：白名单外用户请求 `--channel pre` → `ERROR:体验通道未授权`；作者本人仍是 `AUTHOR_MODE`
-- **交互**：用户说"体验最新版/切体验通道"时，专家执行 `check --channel pre`；被拒绝则礼貌说明"体验版暂未对你开放，正式版发布后可自动更新"
+- **交互**：用户说"体验最新版/切体验通道"时，专家执行 `check --channel pre`；**若被拒绝（体验通道未授权），立即默认切回 main(生产) 分支继续服务**：
+  - 告知用户"体验版暂未对你开放，已为你切回正式版(生产环境)，正式版发布后会自动更新到最新"
+  - **使用 `check`(不带 `--channel` 或带 `--channel main`)确认 main 通道正常，继续后续打包流程，不得因体验通道被拒而中断服务**
+  - 不得反复尝试 `--channel pre` 打扰用户
 
 ### 执行流程（用户模式，每次开始服务前执行）
 
