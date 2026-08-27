@@ -47,6 +47,20 @@ $PY $D/collector.py --member <userid> --session <userid> --action collect \
 
 > member_id 由专家从 `~/.workbuddy/ismartgo_user.json` 的 `userid` 读取;`--session` 传当前会话用户(必须等于 member)。
 
+## 采集范围选项(scan_workspace 输出)
+
+**WorkBuddy 数据链路(本机)**:工作目录 Workspace/CWD → 会话 Session(workbuddy.db sessions: id/cwd/title)→ 对话流 .jsonl(`~/.workbuddy/projects/<转义路径>/*.jsonl`,文件名=session id)→ 任务 Task(`~/.workbuddy/tasks/<uuid>/*.json`)
+
+`--action select` 返回按**工作目录分组**的选项,每个含:
+- `name` 可读名(如 `舒洁`)、`real_path` 真实路径(取自 db cwd)、`path` 采集用目录
+- `sessions[]` 会话明细:标题(db title)+ 时间 + 大小,供用户**按会话**进一步划定范围
+- `size_mb`、`last_activity`
+
+**专家交互(范围选择)**:
+1. 先展示工作目录列表(≤4 用 WorkBuddy 选择组件;>4 在会话框编号列出全部),用户选工作目录
+2. 用户可进一步在该目录的**会话明细**中勾选要采集的具体会话(同款展示方式)
+3. 采集范围传 `--paths <工作目录路径>`(整个目录)或指定会话对应 jsonl 路径
+
 ## 输出结构
 
 ```

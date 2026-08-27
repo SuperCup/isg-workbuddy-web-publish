@@ -130,13 +130,24 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 D=skills/knowledge-collector/scripts
 # 触发/判断
 python3 $D/collector.py --member <userid> --action trigger
-# 同意(弹窗选择后) → 列出项目
+# 同意(弹窗选择后) → 列出采集范围选项(工作目录→会话 两级)
 python3 $D/collector.py --member <userid> --session <userid> --action accept
 # 选定范围 → 取专家自抽内容
 python3 $D/collector.py --member <userid> --session <userid> --action collect --paths "项目1" "项目2"
 # 专家按 schema 抽离 → 回传卡片 → 落盘打包上传
 python3 $D/collector.py --member <userid> --session <userid> --action collect --paths "项目1" --cards-json cards.json
 ```
+
+**采集范围选项(已实现)**：`accept`/`select` 返回按**工作目录**分组的选项（可读名 + 真实路径 + 会话明细[标题/时间/大小]）。交互时：
+1. 先展示工作目录列表（≤4 用选择组件；>4 会话框编号列出全部），用户选工作目录
+2. 可进一步按该目录下的**会话明细**勾选具体会话（同款展示）
+3. 示例展示形式：
+   ```
+   请选择要采集的工作目录（共 98 个，回复编号）：
+   1. 舒洁（C:\Users\PC\Desktop\舒洁，2 会话，1.6MB）— 07-20
+   2. WorkBuddy-2026-08-26-12-03-14（1 会话）— 08-26
+   ...
+   ```
 
 详细说明见 `skills/knowledge-collector/SKILL.md`。
 

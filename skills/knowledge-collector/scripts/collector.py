@@ -26,6 +26,7 @@ import sys
 import json
 import time
 import shutil
+import sqlite3
 import zipfile
 import hashlib
 import datetime
@@ -193,35 +194,111 @@ def handle_consent(member_id: str, decision: str) -> Dict:
 
 
 # ============================================================
-# ③ 扫描 Agent 工作空间, 列出任务/项目
+# ③ 扫描 Agent 工作空间, 列出采集范围选项(工作目录 → 会话 两级)
 # ============================================================
+def _display_name(project_dir_name: str) -> str:
+    """projects 目录转义名 → 可读展示名
+    例: c-Users-PC-Desktop-舒洁 → 舒洁; c-Users-PC-WorkBuddy-2026-08-26-12-03-14 → 2026-08-26-12-03-14;
+        d-Project-PMS-BD-Process → PMS-BD-Process
+    真实路径见 _real_path(近似还原, 仅展示); 采集始终用目录本身(path), 不依赖还原。"""
+    s = project_dir_name
+    for prefix in ("c-Users-PC-Desktop-", "c-Users-PC-", "d-Project-", "c-"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    return s or project_dir_name
+
+
+def _real_path(project_dir_name: str) -> str:
+    """近似还原真实工作目录路径(仅展示; 采集用目录本身)"""
+    s = project_dir_name
+    drive = "C"
+    if s.startswith("c-"):
+        s = s[2:]
+    elif s.startswith("d-"):
+        drive = "D"
+        s = s[2:]
+    return f"{drive}:\\{s.replace('-', '\\')}"
+
+
+def _session_title(sid: str) -> str:
+    """从 workbuddy.db 关联会话标题与时间(对话流 jsonl 文件名 = sessions.id)"""
+    try:
+        db = Path.home() / ".workbuddy" / "workbuddy.db"
+        if db.exists():
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            r = conn.execute(
+                "SELECT title, created_at FROM sessions WHERE id=?", (sid,)
+            ).fetchone()
+            conn.close()
+            if r and r[0]:
+                title = str(r[0]).strip() or "未命名会话"
+                if r[1]:
+                    try:
+                        ts = datetime.datetime.fromtimestamp(int(r[1]) / 1000).strftime("%m-%d %H:%M")
+                        return f"{title}（{ts}）"
+                    except Exception:
+                        pass
+                return title
+    except Exception:
+        pass
+    return "未命名会话"
+
+
+def _session_cwd(sid: str) -> str:
+    """从 workbuddy.db 取会话真实工作目录(cwd), 作为项目的真实路径"""
+    try:
+        db = Path.home() / ".workbuddy" / "workbuddy.db"
+        if db.exists():
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            r = conn.execute("SELECT cwd FROM sessions WHERE id=?", (sid,)).fetchone()
+            conn.close()
+            if r and r[0]:
+                return str(r[0])
+    except Exception:
+        pass
+    return ""
+
+
 def scan_workspace(member_id: str) -> List[Dict]:
     """
-    扫描 agent_workspace_root 下的 projects/tasks/workspace/sessions,
-    返回可收集的任务/项目清单(供用户勾选)。
-    只列该用户名下(这里以"是不是本机用户"做初判, 具体归属规则可配置)。
+    扫描 WorkBuddy 工作空间, 返回采集范围选项(按工作目录分组, 附会话明细):
+    WorkBuddy 数据链路: 工作目录(Workspace/CWD) → 会话(Session, workbuddy.db)
+    → 对话流(projects/<转义路径>/*.jsonl, 文件名=session id) → 任务(tasks/<uuid>/)
+    返回每个工作目录: 可读名/真实路径/会话明细(标题+时间)/大小/最后活动。
     """
     root = Path(CONFIG["agent_workspace_root"])
     items = []
-
-    def _scan_dir(base: Path, kind: str):
-        if not base.exists():
-            return
-        for entry in sorted(base.iterdir()):
-            if entry.is_dir() or entry.is_file():
-                # 估算大小
-                size = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file()) if entry.is_dir() else entry.stat().st_size
-                items.append({
-                    "name": entry.name,
-                    "path": str(entry),
-                    "kind": kind,
-                    "size_mb": round(size / 1024 / 1024, 2),
+    pdir = root / "projects"
+    if pdir.is_dir():
+        dirs = [d for d in pdir.iterdir() if d.is_dir()]
+        dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+        for entry in dirs:
+            jsons = sorted(entry.glob("*.jsonl"))
+            if not jsons:
+                continue
+            size = sum(f.stat().st_size for f in jsons)
+            sessions = []
+            real_path = ""
+            for j in jsons:
+                sid = j.stem
+                if not real_path:
+                    real_path = _session_cwd(sid)
+                sessions.append({
+                    "id": sid,
+                    "title": _session_title(sid),
+                    "size_kb": round(j.stat().st_size / 1024, 1),
                 })
-
-    _scan_dir(root / "projects", "project")
-    _scan_dir(root / "tasks", "task")
-    _scan_dir(root / "workspace" / "sessions", "session")
-
+            items.append({
+                "name": _display_name(entry.name),
+                "path": str(entry),
+                "real_path": real_path or _real_path(entry.name),
+                "kind": "project",
+                "sessions": sessions,
+                "session_count": len(sessions),
+                "size_mb": round(size / 1024 / 1024, 2),
+                "last_activity": datetime.datetime.fromtimestamp(entry.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+            })
     return items
 
 
