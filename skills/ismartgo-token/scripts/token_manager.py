@@ -270,6 +270,11 @@ def interactive_login() -> dict:
         })
 
         browser.close()
+        # 登录成功 → 抓取并保存用户信息(userid/部门), 供知识采集器使用
+        try:
+            _fetch_and_save_user(cookie_header)
+        except Exception:
+            pass
 
         print("会话已保存。\n")
         return {
@@ -562,6 +567,59 @@ def auto_login(
         return {"ok": False, "message": f"登录过程出错: {e}"}
 
 
+def _fetch_and_save_user(cookie_header: str):
+    """登录成功后, 尝试从平台获取当前用户信息(登录账号/用户ID/部门),
+    保存到 ~/.workbuddy/ismartgo_user.json, 供知识采集器作为 member_id 与部门判定。
+    失败不阻塞登录(静默)。"""
+    import requests as req
+    try:
+        resp = req.get(
+            "https://op.ismartgo.cn/deliverysv/web/auth/userList?pageNo=1&pageSize=1000&status=1",
+            headers={"Cookie": cookie_header, "User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            _log(f"获取用户列表失败(HTTP {resp.status_code}, 不影响登录)")
+            return None
+        data = resp.json()
+        result = data.get("result", data) if isinstance(data, dict) else data
+        users = None
+        if isinstance(result, dict):
+            users = result.get("list") or result.get("rows") or result.get("data") or result.get("users")
+        elif isinstance(result, list):
+            users = result
+        if not isinstance(users, list) or not users:
+            _log("用户列表为空或结构未识别(不影响登录)")
+            return None
+        cfg = _load_config()
+        account = cfg.get("username", "")
+        match = None
+        for u in users:
+            if not isinstance(u, dict):
+                continue
+            ua = str(u.get("account") or u.get("loginName") or u.get("username") or u.get("userName") or "")
+            if account and ua and account.lower() == ua.lower():
+                match = u
+                break
+        if match is None:
+            match = users[0]
+        info = {
+            "account": match.get("account") or match.get("loginName") or match.get("username") or match.get("userName") or account,
+            "userid": str(match.get("userId") or match.get("userid") or match.get("id") or ""),
+            "name": match.get("name") or match.get("realName") or "",
+            "dept": match.get("dept") or match.get("department") or match.get("deptName") or "",
+            "org": match.get("orgName") or match.get("company") or match.get("org") or "",
+            "savedAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        user_file = HOME_DIR / "ismartgo_user.json"
+        save_json(user_file, info)
+        _log(f"已保存登录用户信息(账号 {_mask(str(info.get('account','')))}, dept={info.get('dept') or '未知'})")
+        return info
+    except Exception as e:
+        _log(f"获取用户信息失败(不影响登录): {e}")
+        return None
+
+
 def _finish_login(context, store: SessionStore, browser) -> dict:
     """登录成功后的公共收尾：刷新 Cookie → 验证 API → 缓存 Token → 保存会话"""
     all_cookies = await_cookies(context)
@@ -610,6 +668,11 @@ def _finish_login(context, store: SessionStore, browser) -> dict:
     })
 
     browser.close()
+    # 登录成功 → 抓取并保存用户信息(userid/部门), 供知识采集器使用
+    try:
+        _fetch_and_save_user(cookie_header)
+    except Exception:
+        pass
     _log(f"登录成功！会话已保存到 {SESSION_FILE}")
     return {"ok": True, "session": session, "message": f"登录成功！会话已保存到 {SESSION_FILE}。有效期内可直接调用接口，无需重复登录。"}
 

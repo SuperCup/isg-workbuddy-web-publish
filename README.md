@@ -58,6 +58,7 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.4.0`：新增客户知识采集(knowledge-collector)——面向公司客户(品牌)知识库;登录 ismartgo 自动记录 userid/账号;部门排除(财务/人力/行政);OSS 混淆凭证本机存储;敏感文件打包剔除
 - `1.3.3`：更新生效方式优化——无需重启 WorkBuddy,重新进入专家对话即生效;选择交互明确为 ≤4 个用弹窗、>4 个才用会话框列表
 - `1.3.2`：新增作者工作流——作者修改专家包默认在 test 分支,推送生产环境(main)前必须经作者确认
 - `1.3.1`：workspace/package 选择交互改为数量自适应——超过 4 个时在会话框列出全部选项(编号列表)供用户选择(WorkBuddy 选择弹窗上限 4 项)

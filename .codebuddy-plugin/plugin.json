@@ -1,7 +1,7 @@
 {
   "name": "web-packaging-assistant",
-  "version": "1.3.3",
-  "description": "Help users package frontend projects into deployable ZIP files for the ismartgo static hosting platform, ensuring correct relative paths, WeChat/WeCom share cards via OG tags, and platform-compatible build configuration. Auto-updates itself from the production branch for non-author users.",
+  "version": "1.4.0",
+  "description": "Help users package frontend projects into platform-compliant ZIP files for the ismartgo static hosting platform, ensuring correct relative paths, WeChat/WeCom share cards via OG tags, and platform-compatible build configuration. Auto-updates itself from the production branch for non-author users. Includes customer knowledge collection for the company's client (brand) knowledge base.",
   "author": {
     "name": "WorkBuddy",
     "email": ""
@@ -11,7 +11,8 @@
   ],
   "skills": [
     "./skills/ismartgo-token",
-    "./skills/auto-update"
+    "./skills/auto-update",
+    "./skills/knowledge-collector"
   ],
   "expertType": "agent",
   "agentName": "web-packaging-assistant",
