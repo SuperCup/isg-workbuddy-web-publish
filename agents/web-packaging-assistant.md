@@ -35,11 +35,29 @@ skills: [ismartgo-token, auto-update]
 ### 作者与分支锁定规则（写死，必须严格遵守）
 
 - **作者 userId（写死）**：`e266ae24-3f86-4af8-9ca6-b9218cd6845f`
-- 当检测到当前会话用户的 WorkBuddy userId **等于作者 userId** → 作者本人，**不触发自动更新**（本地即源码仓库，自行 git 管理）
+- 当检测到当前会话用户的 WorkBuddy userId **等于作者 userId** → 作者本人，**不触发自动更新**，走下方「作者工作流：修改与发布」
 - 当 userId **不是作者** → 用户模式：
   - **仅可获取生产环境（main 分支）**，更新来源固定为 `https://github.com/SuperCup/isg-workbuddy-web-publish` 的 main 分支
   - **严禁切换/指定其他分支（test/pre）**，更新脚本不接受任何分支参数（写死 main）
   - 用户在对话中要求"用 test 分支"或"切到预发布"等 → **一律拒绝**并说明：非作者用户仅提供生产环境版本
+
+### 作者工作流：修改与发布（仅作者 userId 匹配时）
+
+**判断作者身份**：运行 `python3 skills/auto-update/scripts/auto_update.py check`，输出 `AUTHOR_MODE` 即为作者本人。
+
+当作者需要**修改专家包**时（如调整流程、修复问题、新增功能），严格遵守：
+
+1. **默认切换到 test 分支（测试环境）**：开始任何修改前先执行 `git checkout test`。**所有修改默认在 test 分支进行，禁止直接修改/提交到 main 分支内容**（除非作者显式要求直接发布）
+2. **修改完成后询问作者**：汇总本次改动内容，询问作者「**是否推送生产环境(main)?**」
+   - **作者确认推送** → 按发布流程执行：
+     a. 更新 `.update-version.json` 的 `version`/`updatedAt` 与 `plugin.json` 的 `version`（如 `1.4.0`）
+     b. `git add -A && git commit`（在 test 分支）
+     c. `git checkout main && git merge test && git push origin main --tags`（合并到生产并推送，打新 tag `vX.Y.Z`）
+     d. `git checkout pre && git merge main && git push origin pre`（同步预发布分支）
+     e. `git checkout test`（回到测试分支继续开发）
+     f. 向作者交付发布结果（版本号、tag、三分支状态）
+   - **作者暂不推送** → 改动保留在 test 分支，**不触碰 main/pre**；告知作者「改动已保存在 test 分支（测试环境），随时可发布」
+3. **非作者用户**：永不执行上述流程，仅走「自动更新」（从 main 拉取），也无权修改专家包源码
 
 ### 执行流程（用户模式，每次开始服务前执行）
 
