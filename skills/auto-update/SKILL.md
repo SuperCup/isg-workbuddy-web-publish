@@ -25,7 +25,7 @@ python3 scripts/auto_update.py update
 | `AUTHOR_MODE` | 作者本人使用 | 不更新,本地自行 git 管理 |
 | `UP_TO_DATE` | 已是最新版本 | 正常使用 |
 | `UPDATE_AVAILABLE` | 检测到新版本 | 执行 `update` 更新 |
-| `UPDATED` | 更新完成 | **提醒用户重启 WorkBuddy 后使用最新版** |
+| `UPDATED` | 更新完成 | **提醒用户重新进入本专家对话(新开会话)即生效,无需重启 WorkBuddy** |
 | `NO_USER_ID` | 无法识别当前用户 | 保守不更新,正常使用 |
 | `ERROR:...` | 网络/解析等错误 | 继续使用当前版本,提示网络异常未自动更新 |
 

@@ -24,7 +24,7 @@ skills: [ismartgo-token, auto-update]
 3. **自动检查路径配置**：扫描 `index.html`、JS、CSS 中的资源引用路径，识别所有以 `/` 开头的根路径引用，确保全部使用相对路径。
 4. **构建配置修正**：针对 Vite、Webpack、Create React App、Vue CLI 等主流工具，提供对应的 `base`/`publicPath` 配置方案，使构建产物可部署在任意子目录下。
 5. **ZIP 打包与上传**：将构建产物按平台规范打包为 ZIP 文件，自动获取 Token 并通过 API 上传到指定 workspace 和 package 下。
-6. **自动更新（非作者用户）**：检测到当前 WorkBuddy 用户不是作者时，自动从 GitHub 生产分支(main)检查并拉取最新专家包，覆盖本地安装后提醒用户重启生效。
+6. **自动更新（非作者用户）**：检测到当前 WorkBuddy 用户不是作者时，自动从 GitHub 生产分支(main)检查并拉取最新专家包，覆盖本地安装后提醒用户重新进入对话生效（无需重启）。
 
 ---
 
@@ -74,14 +74,15 @@ skills: [ismartgo-token, auto-update]
    ```bash
    python3 skills/auto-update/scripts/auto_update.py update
    ```
-   - 输出 `UPDATED` → 更新成功，**必须提醒用户**：「已自动更新到最新版本（vX.Y.Z），请**重启 WorkBuddy 后重新进入本专家对话**使用最新功能」
-   - 输出 `ERROR:部分文件被占用...` → 告知用户重启 WorkBuddy 后重试更新
+   - 输出 `UPDATED` → 更新成功，**提醒用户**：「已自动更新到最新版本（vX.Y.Z），请**重新进入本专家对话（新开会话）**使用最新功能——**无需重启 WorkBuddy**（专家包文件在会话启动时读取，当前会话仍用旧版，新会话即生效）」
+   - 输出 `ERROR:部分文件被占用...` → 告知用户关闭其他 WorkBuddy 窗口后重试更新
    - 其他 `ERROR:...` → 告知用户更新失败原因，继续使用当前版本
 3. **版本一致性**：更新依据为专家包根目录 `.update-version.json` 的 `version` 字段，与 GitHub main 分支 zip 内版本对比，不同则覆盖更新。
 
 **注意**：
 - 更新覆盖范围：专家包内 agents/、skills/、README.md 等（不触碰用户本地的 `.git`、`__pycache__`、`.git-credentials`）
-- 更新过程中若提示"重启后生效"，更新完成即提醒，**不得**继续用旧逻辑服务用户
+- **生效方式（已验证）**：本地市场专家包直接读取目录文件，无独立注册缓存。更新完成后**无需重启 WorkBuddy**，**重新进入本专家对话（新开会话）即生效**；正在进行的旧会话继续用旧版逻辑直到结束
+- **不要强制要求用户重启 WorkBuddy**；仅当用户反馈"专家列表/新会话仍显示旧版本"时，才建议其刷新或重启 WorkBuddy 排查
 - 更新检查失败(网络)时**不要反复重试**打扰用户，继续当前版本服务即可
 
 ---
@@ -488,9 +489,9 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
 
 1. **主动执行**：`python3 skills/ismartgo-token/scripts/token_manager.py list-spaces`
    - 该命令会返回当前账号可访问的 **workspace 列表及每个 workspace 下的 package 列表**
-2. **展示列表给用户选择**（workspace + package 一起列出，供用户一次性看到全貌），**不要先问用户"你的 workspace 是什么"**。**展示方式按数量自适应**：
-   - **workspace ≤ 4 个** → 可使用 WorkBuddy 选择弹窗（选项点击选择）
-   - **workspace > 4 个** → ⚠️ **WorkBuddy 选择弹窗最多只展示 4 个选项，数量超过时必须改用「会话框文本编号列表」**：在对话中按编号列出**全部** workspace（每个附 package 概览），让用户**回复编号或名称**自行选择。示例：
+2. **展示列表给用户选择**（workspace + package 一起列出，供用户一次性看到全貌），**不要先问用户"你的 workspace 是什么"**。**展示方式按数量自适应（友好优先）**：
+   - **workspace ≤ 4 个** → **必须使用 WorkBuddy 选择弹窗**（选项点击选择，交互更友好）
+   - **workspace > 4 个** → ⚠️ **WorkBuddy 选择弹窗最多只展示 4 个选项，此时才改为「会话框文本编号列表」**：在对话中按编号列出**全部** workspace（每个附 package 概览），让用户**回复编号或名称**自行选择。示例：
      ```
      当前账号下有 11 个 workspace，请回复编号或名称选择：
      1. workspace-a（包: pkg1, pkg2）
@@ -519,7 +520,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
   - 可根据页面 HTML 内容（如 `<title>`、主题）给出命名建议
   - 可参考该 workspace 下已有 package 的命名风格提供建议（列表已在 Step 3 展示）
   - 用户输入后确认 package 编码与名称
-- **覆盖已有 package** → 展示该 workspace 下已有的 package 列表（来自 list-spaces 输出），用户选择目标 package，**上传到对应 package 完成覆盖**。**package 数量 > 4 时同样使用「会话框编号列表」**（WorkBuddy 选择弹窗最多 4 项，不得遗漏），用户回复编号或名称选择
+- **覆盖已有 package** → 展示该 workspace 下已有的 package 列表（来自 list-spaces 输出），用户选择目标 package，**上传到对应 package 完成覆盖**。**package ≤ 4 个时用 WorkBuddy 选择弹窗；package > 4 个时才改用「会话框编号列表」**（WorkBuddy 选择弹窗最多 4 项，不得遗漏），用户回复编号或名称选择
 - ⚠️ **在用户明确选择"新建"或"覆盖某个 package"之前，不得擅自决定上传目标**
 
 ### Step 5：检查项目配置

@@ -23,7 +23,7 @@ WEB部署Agent(小包)专家包 — 自动更新脚本
     AUTHOR_MODE            : 作者本人,不更新(本地即源码仓库)
     UP_TO_DATE             : 已是最新
     UPDATE_AVAILABLE       : 有新版本,执行 update 可更新
-    UPDATED                : 更新完成(可能需重启 WorkBuddy 生效)
+    UPDATED                : 更新完成(重新进入专家对话即生效,无需重启)
     NO_USER_ID             : 无法识别当前用户,保守不更新
     NOT_AUTHOR_NO_BRANCH   : 非作者尝试切换分支被拒绝(理论上不会发生)
     ERROR:<原因>           : 出错(网络/解析等)
@@ -271,7 +271,7 @@ def cmd_update() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
     if fail:
-        log(f"ERROR:部分文件被占用({fail} 个),请重启 WorkBuddy 后重试更新")
+        log(f"ERROR:部分文件被占用({fail} 个),请关闭其他 WorkBuddy 窗口后重试更新")
         return 1
     log("UPDATED")
     return 0
