@@ -70,8 +70,8 @@ CONFIG_DEFAULT = {
     "admin_member_ids": [],   # 由运维/管理员填
     # 业务线
     "biz_lines": ["即时零售(到家)", "到店营销", "物码"],
-    # 提醒频率控制: 每次执行后, 经历这个天数才再次提醒(默认14天)
-    "reminder_interval_days": 14,
+    # 提醒频率控制: 成功采集并上传 OSS 后, 经历这个天数才再次提醒(默认7天)
+    "reminder_interval_days": 7,
     # 不参与采集的部门(匹配用户组织后, 命中即拒绝采集)
     "exclude_depts": ["财务部", "人力资源部", "行政部"],
 }
@@ -364,12 +364,14 @@ def list_for_selection(member_id: str, time_range: str = "month") -> List[Dict]:
 
 
 # ============================================================
-# 提醒频率控制(14天): 到流程末尾时判断要不要提醒执行
+# 提醒频率控制(7天): 到流程末尾时判断要不要提醒执行
 # ============================================================
 def reminder_state(member_id: str) -> Dict:
     """判断当前是否该提醒用户执行采集
     返回: {should_remind: bool, reason: 'first_time|due|within_interval', last_collect_at}
-    规则: 从未执行过 → 提醒; 距上次 >= interval → 提醒; 否则不提醒
+    规则: 从未成功采集过 → 提醒; 距上次成功采集(已上传OSS) >= interval → 提醒; 否则不提醒
+    注意: last_collect_at 仅在「知识卡片落盘 + 上传 OSS 成功」后刷新(见 mark_done 调用条件),
+          上传失败不会刷新, 下次仍会提醒。
     """
     p = state_path(member_id)
     last = None
@@ -466,8 +468,12 @@ def collect_and_upload(member_id: str, selected_paths: List[str],
     collect_result["pack"] = pack
     collect_result["upload"] = up
 
-    # 5) 记录执行时间(频率控制)
-    mark_done(member_id, collect_result)
+    # 5) 记录执行时间(频率控制): 仅在「知识卡片落盘 + 上传 OSS 成功」后刷新提醒条件,
+    #    上传失败(up.ok=False)不刷新, 下次流程末尾仍会提醒用户采集
+    if up.get("ok"):
+        mark_done(member_id, collect_result)
+    else:
+        collect_result.setdefault("upload", {})["reminder_not_refreshed"] = True
     return collect_result
 
 

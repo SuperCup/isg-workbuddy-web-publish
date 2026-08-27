@@ -111,7 +111,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 
 ### 触发时机
 
-- **流程末尾提醒（强制，见 Step 12）**：打包/上传流程结束时**必须**运行 `collector.py --action trigger`，若 `should_remind=true` 则主动发起采集（默认 14 天一次）；**注意：这是打包流程的固定环节，不允许跳过**
+- **流程末尾提醒（强制，见 Step 12）**：打包/上传流程结束时**必须**运行 `collector.py --action trigger`，若 `should_remind=true` 则主动发起采集（**7 天内不重复提醒**，且**仅在上次采集成功并上传 OSS 后**才开始计时；上传失败不刷新，下次仍会提醒）；**注意：这是打包流程的固定环节，不允许跳过**
 - **用户主动提出**：用户说"上传知识 / 收集知识 / 沉淀知识 / 知识库"等（含同义表达）时触发
 
 ### 执行规则（严格遵守）
