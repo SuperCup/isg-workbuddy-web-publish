@@ -47,19 +47,30 @@ $PY $D/collector.py --member <userid> --session <userid> --action collect \
 
 > member_id 由专家从 `~/.workbuddy/ismartgo_user.json` 的 `userid` 读取;`--session` 传当前会话用户(必须等于 member)。
 
-## 采集范围选项(scan_workspace 输出)
+## 采集范围选项(scan_workspace 输出,所有用户一致)
 
-**WorkBuddy 数据链路(本机)**:工作目录 Workspace/CWD → 会话 Session(workbuddy.db sessions: id/cwd/title)→ 对话流 .jsonl(`~/.workbuddy/projects/<转义路径>/*.jsonl`,文件名=session id)→ 任务 Task(`~/.workbuddy/tasks/<uuid>/*.json`)
+**WorkBuddy 数据链路(本机)**:空间/工作目录 Workspace/CWD → 会话 Session(workbuddy.db sessions: id/cwd/title)→ 对话流 .jsonl(`~/.workbuddy/projects/<转义路径>/*.jsonl`,文件名=session id)→ 任务 Task(`~/.workbuddy/tasks/<uuid>/*.json`)
 
-`--action select` 返回按**工作目录分组**的选项,每个含:
-- `name` 可读名(如 `舒洁`)、`real_path` 真实路径(取自 db cwd)、`path` 采集用目录
-- `sessions[]` 会话明细:标题(db title)+ 时间 + 大小,供用户**按会话**进一步划定范围
-- `size_mb`、`last_activity`
+**CLI**:`--action select [--time-range week|month|all]`(默认 month 近一月)
 
-**专家交互(范围选择)**:
-1. 先展示工作目录列表(≤4 用 WorkBuddy 选择组件;>4 在会话框编号列出全部),用户选工作目录
-2. 用户可进一步在该目录的**会话明细**中勾选要采集的具体会话(同款展示方式)
-3. 采集范围传 `--paths <工作目录路径>`(整个目录)或指定会话对应 jsonl 路径
+**时间筛选规则(scan_workspace 内实现)**:
+- `week`:空间最后活动时间(目录 mtime)距今 ≤ 7 天
+- `month`:≤ 30 天(**默认**)
+- `all`:全部
+- 输出附带 `time_range` 字段标识当前筛选
+
+**返回项(每个空间/任务)**:
+- `name` 展示名:单会话目录=会话标题(前端所见),多会话目录=可读名(如 `舒洁`)
+- `real_path` 真实路径(取自 db cwd)、`path` 采集用目录
+- `sessions[]` 会话明细:标题(db title)+ 时间 + 大小 + **intent 真实意图**(从 jsonl `<user_query>` 提取)
+- `size_mb`、`last_activity`、`session_count`
+
+**专家交互(范围选择,标准流程)**:
+1. **全量加载 + 时间筛选**:默认 `--time-range month`,向用户确认时间范围(近一周/近一月/全部)后拉取
+2. 展示列表:编号 + 标题 + 真实路径 + 会话数 + 大小 + 意图预览;客户/品牌类标「客户」
+3. **多选**:≤4 用 WorkBuddy 选择组件;>4 会话框编号列出全部,回复编号可多选(逗号/空格/区间)
+4. 会话级可进一步勾选(标题/时间/大小/意图)
+5. 采集范围传多个 `--paths`(目录或 jsonl)
 
 ## 输出结构
 

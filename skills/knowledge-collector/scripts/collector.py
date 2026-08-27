@@ -294,20 +294,31 @@ def _session_intent(jsonl) -> str:
     return ""
 
 
-def scan_workspace(member_id: str) -> List[Dict]:
+def scan_workspace(member_id: str, time_range: str = "month") -> List[Dict]:
     """
     扫描 WorkBuddy 工作空间, 返回采集范围选项(按工作目录分组, 附会话明细):
     WorkBuddy 数据链路: 空间/工作目录(Workspace/CWD) → 会话(Session, workbuddy.db)
     → 对话流(projects/<转义路径>/*.jsonl, 文件名=session id) → 任务(tasks/<uuid>/)
     展示名优先用会话标题(前端看到的标题), 会话明细含 标题+时间+大小+真实意图。
+
+    时间范围筛选(time_range, 默认 month 近一月):
+      - week  : 近 7 天(依据空间最后活动时间)
+      - month : 近 30 天(默认)
+      - all   : 全部时间
     """
     root = Path(CONFIG["agent_workspace_root"])
     items = []
     pdir = root / "projects"
+    now = datetime.datetime.now()
+    limit_days = {"week": 7, "month": 30}.get(time_range, None)  # None=全部
     if pdir.is_dir():
         dirs = [d for d in pdir.iterdir() if d.is_dir()]
         dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
         for entry in dirs:
+            if limit_days is not None:
+                age_days = (now - datetime.datetime.fromtimestamp(entry.stat().st_mtime)).days
+                if age_days > limit_days:
+                    continue
             jsons = sorted(entry.glob("*.jsonl"))
             if not jsons:
                 continue
@@ -342,8 +353,8 @@ def scan_workspace(member_id: str) -> List[Dict]:
     return items
 
 
-def list_for_selection(member_id: str) -> List[Dict]:
-    items = scan_workspace(member_id)
+def list_for_selection(member_id: str, time_range: str = "month") -> List[Dict]:
+    items = scan_workspace(member_id, time_range)
     return items
 
 
@@ -461,7 +472,7 @@ def collect_and_upload(member_id: str, selected_paths: List[str],
 
 
 def run_flow(member_id: str, decision: str, selected_paths: Optional[List[str]] = None,
-             current_session_member: str = "") -> Dict:
+             current_session_member: str = "", time_range: str = "month") -> Dict:
     """完整流程入口(供专家调用)
     - 专家流程末尾固定环节: 先调 should_remind 判断是否需要提醒
     - 需要提醒 → 展示隐私说明 → 用户选择(WorkBuddy 插件交互由专家负责) → 收集上传
@@ -491,7 +502,8 @@ def run_flow(member_id: str, decision: str, selected_paths: Optional[List[str]] 
         return {"step": "done", "result": "user_rejected", "uploaded": False}
 
     if selected_paths is None:
-        return {"step": "select", "items": list_for_selection(member_id)}
+        return {"step": "select", "items": list_for_selection(member_id, time_range),
+                "time_range": time_range}
 
     save_state(member_id, Status.COLLECTING)
     return collect_and_upload(member_id, selected_paths,
@@ -511,6 +523,8 @@ def main(argv=None):
     parser.add_argument("--config", default="", help="可选config.json路径")
     parser.add_argument("--cards-json", default="", help="专家抽离后回传的JSON卡片(文件路径或内联JSON)")
     parser.add_argument("--session", default="", help="当前会话用户ID(强规则校验: 必须等于--member, 否则拒绝)")
+    parser.add_argument("--time-range", choices=["week", "month", "all"], default="month",
+                        help="采集范围时间筛选: week近一周 / month近一月(默认) / all全部时间")
     args = parser.parse_args(argv)
 
     if args.config:
@@ -543,9 +557,10 @@ def main(argv=None):
     elif args.action in ("accept", "reject"):
         out = handle_consent(args.member, args.action)
         if args.action == "accept":
-            out["items"] = list_for_selection(args.member)
+            out["items"] = list_for_selection(args.member, args.time_range)
     elif args.action == "select":
-        out = {"action": "select", "items": list_for_selection(args.member)}
+        out = {"action": "select", "items": list_for_selection(args.member, args.time_range),
+               "time_range": args.time_range}
     elif args.action == "collect":
         cards = None
         if args.cards_json:
