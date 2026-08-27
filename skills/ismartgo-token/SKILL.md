@@ -59,6 +59,11 @@ python3 scripts/token_manager.py clear
 - `DISABLED` 禁用：除创建者外其他人都不能访问该链接
 - 接口：`PUT {BASE_URL}/api/web/spaces/<workspace>/packages/<package>`，body 含 `code/title/description/accessType/accessToken/tokenExpireAt`（**实测接口仅支持 PUT，POST 返回 errcode 101**）
 
+**Token 来源交互（用户选 TOKEN 时必须询问）**：
+- **自动生成**：专家生成随机 Token（建议 6 位数字+字母），生成后**展示给用户确认**，用户认可才使用
+- **用户自己设置**：用户提供 Token 值（如 6 位数字），专家回显确认后使用
+- 禁止专家擅自决定 Token 值而不经用户确认
+
 ## 半隐式登录（login-auto）
 
 参考 SmartGo SSO 实测逻辑（登录鉴权处理逻辑参考 v1.0）：`agent.ismartgo.com` 与 PMS/PMP 共用 `op.ismartgo.cn/portalsso`，appkey=`aisites`。登录页为 H5 版（`portalsso/h5/login.html`），表单：
