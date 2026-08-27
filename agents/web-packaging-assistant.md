@@ -59,7 +59,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
      f. 向作者交付发布结果（版本号、tag、三分支状态）
    - **作者未确认** → 不执行任何推送，改动保留在 test 分支
 4. **体验版发布（可选）**：作者想把「最新但未到生产阶段」的版本给指定用户先体验时：
-   - 把体验用户 userId 加入 `preview_member_ids`（专家包 `config.json` 或环境变量 `PREVIEW_MEMBER_IDS`），推送到 **pre 分支**即可
+   - 把体验用户 userId 加入专家包根 `config.json` 的 `preview_member_ids` 数组（随包分发、随 main 更新覆盖，由作者控制），推送到 **pre 分支**即可
    - 体验用户即可用 `--channel pre` 从 pre 分支更新（见下方「体验通道」）
 5. **非作者用户**：永不执行上述流程，仅走「自动更新」（默认 main），也无权修改专家包源码
 
@@ -67,7 +67,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 
 - **目的**：让最新但未到发布阶段的版本(预发布分支 pre)给指定用户先体验
 - **默认**：非作者用户仅从 **main(生产)** 更新，`--channel pre` 会被拒绝
-- **授权**：作者将体验用户 userId 加入 `preview_member_ids`（专家包 `config.json` 的 `preview_member_ids` 数组，或环境变量 `PREVIEW_MEMBER_IDS` 逗号分隔）后，该用户即可：
+- **授权**：作者将体验用户 userId 加入专家包根 `config.json` 的 `preview_member_ids` 数组（**仅此来源**，不读环境变量，防止用户自设绕过；config.json 随 main 更新覆盖还原，由作者控制）后，该用户即可：
   ```bash
   python3 skills/auto-update/scripts/auto_update.py check  --channel pre
   python3 skills/auto-update/scripts/auto_update.py update --channel pre

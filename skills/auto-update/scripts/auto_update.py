@@ -57,8 +57,9 @@ def _zip_url(branch: str) -> str:
 
 
 def _preview_member_ids() -> list:
-    """体验通道白名单(作者配置): 从专家包 config.json 的 preview_member_ids
-    或环境变量 PREVIEW_MEMBER_IDS(逗号分隔)读取。仅名单内用户可从 pre 分支更新。"""
+    """体验通道白名单(作者控制): 仅从专家包根目录 config.json 的 preview_member_ids 读取。
+    注意: 不读取环境变量作为授权依据(用户可自设环境变量绕过), 环境变量仅保留作作者本机调试, 不参与授权判断。
+    config.json 随包分发且会被 main 更新覆盖还原, 作者可通过发布控制名单。"""
     ids = []
     try:
         cfg_path = get_expert_root() / "config.json"
@@ -68,9 +69,6 @@ def _preview_member_ids() -> list:
             ids = cfg.get("preview_member_ids", []) or []
     except Exception:
         ids = []
-    env = os.environ.get("PREVIEW_MEMBER_IDS", "")
-    if env:
-        ids += [x.strip() for x in env.split(",") if x.strip()]
     return [str(x) for x in ids]
 
 

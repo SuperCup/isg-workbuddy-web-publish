@@ -7,7 +7,7 @@
 - **作者 userId**:`e266ae24-3f86-4af8-9ca6-b9218cd6845f`(作者本人不触发更新,本地即源码仓库)
 - **默认分支锁定**:非作者用户**默认仅可获取生产环境(main)**,严禁切换 test/pre
 - 更新来源固定为 https://github.com/SuperCup/isg-workbuddy-web-publish 的 main 分支
-- **体验通道例外**:仅当用户 userId 在 `preview_member_ids` 白名单(专家包 `config.json` 或环境变量 `PREVIEW_MEMBER_IDS` 逗号分隔)时,可使用 `--channel pre` 从预发布分支获取最新体验版;白名单外一律拒绝
+- **体验通道例外**:仅当用户 userId 在 `preview_member_ids` 白名单(仅读取专家包根 `config.json` 的 `preview_member_ids`,作者通过发布控制;**不读环境变量**,防用户自设绕过)时,可使用 `--channel pre` 从预发布分支获取最新体验版;白名单外一律拒绝
 
 ## 使用方式
 
