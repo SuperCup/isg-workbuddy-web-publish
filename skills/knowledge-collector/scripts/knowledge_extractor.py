@@ -276,7 +276,9 @@ def make_card_filename(p, card: Dict) -> str:
     import hashlib
     # p 可能是 Path 或 str
     pname = Path(p).name if not isinstance(p, str) else Path(p).name
-    h = hashlib.md5(f"{pname}{card['brand']}{card['card_type']}".encode()).hexdigest()[:6]
+    # 哈希必须包含内容摘要: 仅 brand+card_type 会导致同批次同类型卡片文件名互相覆盖
+    content_snip = (card.get("content") or "")[:200]
+    h = hashlib.md5(f"{pname}{card['brand']}{card['card_type']}{content_snip}".encode()).hexdigest()[:8]
     # 加时间戳避免同来源同类型碰撞
     ts = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     return f"{card['brand']}_{card['card_type']}_{ts}_{h}"
