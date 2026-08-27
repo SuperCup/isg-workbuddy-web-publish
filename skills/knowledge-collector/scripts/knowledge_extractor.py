@@ -39,12 +39,15 @@ SENSITIVE_WORDS = [
 
 def load_sensitive_words() -> List[str]:
     """从独立词库文件加载, 便于运维/你扩充"""
-    # 词库位于 skill 根目录(sensitive_words.txt), 与脚本同层的 scripts/ 下没有时向上找一级
-    wf = Path(__file__).parent / "sensitive_words.txt"
-    if not wf.exists():
-        wf = Path(__file__).parent.parent / "sensitive_words.txt"
-    if wf.exists():
-        return [w.strip() for w in wf.read_text(encoding="utf-8").splitlines() if w.strip()]
+    # 优先读取 skill 根目录的 sensitive_words.txt(用户扩充的主词库),
+    # scripts/ 同级仅作兜底(不应存在, 由旧版 ensure_sensitive_file 误生成)
+    for wf in (Path(__file__).parent.parent / "sensitive_words.txt",
+               Path(__file__).parent / "sensitive_words.txt"):
+        if wf.exists():
+            try:
+                return [w.strip() for w in wf.read_text(encoding="utf-8").splitlines() if w.strip()]
+            except Exception:
+                pass
     return SENSITIVE_WORDS
 
 
@@ -289,12 +292,15 @@ def to_markdown(card: Dict) -> str:
 
 
 # ============================================================
-# 敏感词库写入(首次运行时生成默认文件)
+# 敏感词库写入(仅当主词库缺失时生成默认文件到 skill 根目录)
 # ============================================================
 def ensure_sensitive_file():
-    wf = Path(__file__).parent / "sensitive_words.txt"
+    wf = Path(__file__).parent.parent / "sensitive_words.txt"
     if not wf.exists():
-        wf.write_text("\n".join(SENSITIVE_WORDS), encoding="utf-8")
+        try:
+            wf.write_text("\n".join(SENSITIVE_WORDS), encoding="utf-8")
+        except Exception:
+            pass
 
 
 ensure_sensitive_file()
