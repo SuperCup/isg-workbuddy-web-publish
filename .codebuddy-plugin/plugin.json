@@ -1,6 +1,6 @@
 {
   "name": "web-packaging-assistant",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Help users package frontend projects into platform-compliant ZIP files for the ismartgo static hosting platform, ensuring correct relative paths, WeChat/WeCom share cards via OG tags, and platform-compatible build configuration. Auto-updates itself from the production branch for non-author users. Includes customer knowledge collection for the company's client (brand) knowledge base.",
   "author": {
     "name": "WorkBuddy",

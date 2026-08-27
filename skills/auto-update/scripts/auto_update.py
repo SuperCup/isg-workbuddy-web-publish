@@ -31,6 +31,7 @@ WEB部署Agent(小包)专家包 — 自动更新脚本
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -54,6 +55,16 @@ EXCLUDE_NAMES = {".git", "__pycache__", ".git-credentials"}
 
 def _zip_url(branch: str) -> str:
     return f"https://github.com/{REPO}/archive/refs/heads/{branch}.zip"
+
+
+def _version_tuple(v: str) -> tuple:
+    """版本字符串 -> 可比较元组(忽略非数字段)"""
+    return tuple(int(x) for x in re.split(r"[.\-]", str(v)) if x.isdigit())
+
+
+def _is_downgrade(local_ver: dict, remote_ver: dict) -> bool:
+    """本地版本高于远程版本(可能选错通道/降级)"""
+    return _version_tuple(local_ver.get("version", "0")) > _version_tuple(remote_ver.get("version", "0"))
 
 
 def _preview_member_ids() -> list:
@@ -271,6 +282,9 @@ def cmd_check() -> int:
         log(f"ERROR:无法访问 GitHub({e})")
         return 1
     local_ver = get_local_version()
+    if _is_downgrade(local_ver, remote_ver):
+        log(f"LOCAL_NEWER: 本地版本({local_ver.get('version','?')})高于远程({remote_ver.get('version','?')}), 疑似更新通道不符, 不执行更新")
+        return 0
     if local_ver.get("version") == remote_ver.get("version"):
         log("UP_TO_DATE")
     else:
@@ -301,6 +315,9 @@ def cmd_update() -> int:
     try:
         src_dir, remote_ver = fetch_remote_package(branch)
         local_ver = get_local_version()
+        if _is_downgrade(local_ver, remote_ver):
+            log(f"LOCAL_NEWER: 本地版本({local_ver.get('version','?')})高于远程({remote_ver.get('version','?')}), 已拒绝降级更新(请确认更新通道)")
+            return 0
         if local_ver.get("version") == remote_ver.get("version"):
             log("UP_TO_DATE")
             return 0
