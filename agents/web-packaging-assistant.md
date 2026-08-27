@@ -47,17 +47,33 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 
 当作者需要**修改专家包**时（如调整流程、修复问题、新增功能），严格遵守：
 
-1. **默认切换到 test 分支（测试环境）**：开始任何修改前先执行 `git checkout test`。**所有修改默认在 test 分支进行，禁止直接修改/提交到 main 分支内容**（除非作者显式要求直接发布）
-2. **修改完成后询问作者**：汇总本次改动内容，询问作者「**是否推送生产环境(main)?**」
-   - **作者确认推送** → 按发布流程执行：
+1. **默认切换到 test 分支（测试环境）**：开始任何修改前先执行 `git checkout test`。**所有修改默认在 test 分支进行，禁止直接修改/提交到 main 分支内容**
+2. **不主动询问是否推送**：修改完成并提交到 test 分支后，**不要每次追问作者"是否推送生产"**。仅汇报改动已在 test 分支完成即可，等待作者**主动提出**发布需求
+3. **作者主动要求发布时，执行前必须二次确认**：作者说"发布/推生产/上线"等时，先复述「将把 test(含全部改动)合并到 main 并推送、打 tag vX.Y.Z、同步 pre」，请作者确认后再执行：
+   - **作者二次确认** → 按发布流程执行：
      a. 更新 `.update-version.json` 的 `version`/`updatedAt` 与 `plugin.json` 的 `version`（如 `1.4.0`）
      b. `git add -A && git commit`（在 test 分支）
      c. `git checkout main && git merge test && git push origin main --tags`（合并到生产并推送，打新 tag `vX.Y.Z`）
      d. `git checkout pre && git merge main && git push origin pre`（同步预发布分支）
      e. `git checkout test`（回到测试分支继续开发）
      f. 向作者交付发布结果（版本号、tag、三分支状态）
-   - **作者暂不推送** → 改动保留在 test 分支，**不触碰 main/pre**；告知作者「改动已保存在 test 分支（测试环境），随时可发布」
-3. **非作者用户**：永不执行上述流程，仅走「自动更新」（从 main 拉取），也无权修改专家包源码
+   - **作者未确认** → 不执行任何推送，改动保留在 test 分支
+4. **体验版发布（可选）**：作者想把「最新但未到生产阶段」的版本给指定用户先体验时：
+   - 把体验用户 userId 加入 `preview_member_ids`（专家包 `config.json` 或环境变量 `PREVIEW_MEMBER_IDS`），推送到 **pre 分支**即可
+   - 体验用户即可用 `--channel pre` 从 pre 分支更新（见下方「体验通道」）
+5. **非作者用户**：永不执行上述流程，仅走「自动更新」（默认 main），也无权修改专家包源码
+
+### 体验通道（--channel pre，仅白名单用户）
+
+- **目的**：让最新但未到发布阶段的版本(预发布分支 pre)给指定用户先体验
+- **默认**：非作者用户仅从 **main(生产)** 更新，`--channel pre` 会被拒绝
+- **授权**：作者将体验用户 userId 加入 `preview_member_ids`（专家包 `config.json` 的 `preview_member_ids` 数组，或环境变量 `PREVIEW_MEMBER_IDS` 逗号分隔）后，该用户即可：
+  ```bash
+  python3 skills/auto-update/scripts/auto_update.py check  --channel pre
+  python3 skills/auto-update/scripts/auto_update.py update --channel pre
+  ```
+- **规则**：白名单外用户请求 `--channel pre` → `ERROR:体验通道未授权`；作者本人仍是 `AUTHOR_MODE`
+- **交互**：用户说"体验最新版/切体验通道"时，专家执行 `check --channel pre`；被拒绝则礼貌说明"体验版暂未对你开放，正式版发布后可自动更新"
 
 ### 执行流程（用户模式，每次开始服务前执行）
 

@@ -5,17 +5,22 @@
 ## 硬性规则(写死,不可违反)
 
 - **作者 userId**:`e266ae24-3f86-4af8-9ca6-b9218cd6845f`(作者本人不触发更新,本地即源码仓库)
-- **分支锁定**:非作者用户**仅可获取生产环境(main)**,脚本不接受任何分支参数,严禁切换 test/pre
+- **默认分支锁定**:非作者用户**默认仅可获取生产环境(main)**,严禁切换 test/pre
 - 更新来源固定为 https://github.com/SuperCup/isg-workbuddy-web-publish 的 main 分支
+- **体验通道例外**:仅当用户 userId 在 `preview_member_ids` 白名单(专家包 `config.json` 或环境变量 `PREVIEW_MEMBER_IDS` 逗号分隔)时,可使用 `--channel pre` 从预发布分支获取最新体验版;白名单外一律拒绝
 
 ## 使用方式
 
 ```bash
-# 检查是否有更新(输出状态码)
+# 检查是否有更新(默认生产通道 main)
 python3 scripts/auto_update.py check
 
 # 检查并执行更新(自动下载解压覆盖本地专家包)
 python3 scripts/auto_update.py update
+
+# 体验通道(仅白名单用户, 从 pre 预发布分支获取最新体验版)
+python3 scripts/auto_update.py check  --channel pre
+python3 scripts/auto_update.py update --channel pre
 ```
 
 ## 输出状态码

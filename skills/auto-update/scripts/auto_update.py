@@ -42,14 +42,36 @@ from pathlib import Path
 
 # ─── 写死的规则 ──────────────────────────────────────────
 AUTHOR_USER_ID = "e266ae24-3f86-4af8-9ca6-b9218cd6845f"  # 作者 WorkBuddy userId
-BRANCH = "main"  # 非作者仅可获取生产环境,写死,不接受分支参数
+DEFAULT_BRANCH = "main"  # 非作者默认仅可获取生产环境
+PREVIEW_BRANCH = "pre"   # 体验通道分支(预发布/体验版)
 REPO = "SuperCup/isg-workbuddy-web-publish"
-ZIP_URL = f"https://github.com/{REPO}/archive/refs/heads/{BRANCH}.zip"
 
 # 本地版本记录文件名(放在专家包根目录,随包分发/覆盖)
 VERSION_FILE = ".update-version.json"
 # 覆盖时排除(用户本地数据与运行产物,不触碰)
 EXCLUDE_NAMES = {".git", "__pycache__", ".git-credentials"}
+
+
+def _zip_url(branch: str) -> str:
+    return f"https://github.com/{REPO}/archive/refs/heads/{branch}.zip"
+
+
+def _preview_member_ids() -> list:
+    """体验通道白名单(作者配置): 从专家包 config.json 的 preview_member_ids
+    或环境变量 PREVIEW_MEMBER_IDS(逗号分隔)读取。仅名单内用户可从 pre 分支更新。"""
+    ids = []
+    try:
+        cfg_path = get_expert_root() / "config.json"
+        if cfg_path.exists():
+            import json as _json
+            cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            ids = cfg.get("preview_member_ids", []) or []
+    except Exception:
+        ids = []
+    env = os.environ.get("PREVIEW_MEMBER_IDS", "")
+    if env:
+        ids += [x.strip() for x in env.split(",") if x.strip()]
+    return [str(x) for x in ids]
 
 
 def log(msg: str):
@@ -116,13 +138,14 @@ def get_local_version() -> dict:
     return {}
 
 
-def download_zip(dest: Path) -> Path:
-    """下载 main 分支 zip 到临时目录,返回 zip 路径(带重试)"""
+def download_zip(dest: Path, branch: str = DEFAULT_BRANCH) -> Path:
+    """下载指定分支 zip 到临时目录,返回 zip 路径(带重试)"""
     zip_path = dest / "update.zip"
+    url = _zip_url(branch)
     last_err = None
     for attempt in range(1, 4):
         try:
-            req = urllib.request.Request(ZIP_URL, headers={"User-Agent": "web-packaging-assistant-auto-update"})
+            req = urllib.request.Request(url, headers={"User-Agent": "web-packaging-assistant-auto-update"})
             with urllib.request.urlopen(req, timeout=120) as resp:
                 with open(zip_path, "wb") as f:
                     shutil.copyfileobj(resp, f)
@@ -134,14 +157,14 @@ def download_zip(dest: Path) -> Path:
     raise last_err
 
 
-def fetch_remote_package() -> tuple:
+def fetch_remote_package(branch: str = DEFAULT_BRANCH) -> tuple:
     """
-    下载并解压远程 main 分支包,返回 (src_dir, remote_version_dict)
+    下载并解压远程指定分支包,返回 (src_dir, remote_version_dict)
     src_dir:临时目录中的新包根(调用方负责清理临时目录)
     """
     tmp = Path(tempfile.mkdtemp(prefix="wp-update-"))
     try:
-        zip_path = download_zip(tmp)
+        zip_path = download_zip(tmp, branch)
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(tmp)
         src_dir = next(p for p in tmp.iterdir() if p.is_dir())
@@ -213,6 +236,24 @@ def apply_update(src_dir: Path) -> int:
     return fail_count
 
 
+def _resolve_channel(uid: str) -> str:
+    """解析更新通道: 返回 (branch) 或抛出 RuntimeError(无权限)。
+    默认 main(生产); --channel pre 仅体验白名单用户可用。"""
+    channel = "main"
+    for i, a in enumerate(sys.argv[1:]):
+        if a in ("--channel", "-c") and i + 2 < len(sys.argv):
+            channel = sys.argv[i + 2].lower()
+        elif a.startswith("--channel="):
+            channel = a.split("=", 1)[1].lower()
+    if channel not in ("main", "pre"):
+        raise RuntimeError(f"非法通道: {channel}(仅支持 main/pre)")
+    if channel == "pre":
+        if str(uid) in _preview_member_ids():
+            return PREVIEW_BRANCH
+        raise RuntimeError("体验通道未授权: 当前用户不在预览白名单(preview_member_ids), 仅可获取生产环境 main")
+    return DEFAULT_BRANCH
+
+
 def cmd_check() -> int:
     uid = get_current_user_id()
     if not uid:
@@ -221,12 +262,13 @@ def cmd_check() -> int:
     if uid == AUTHOR_USER_ID:
         log("AUTHOR_MODE")
         return 0
-    # 非作者:仅生产环境 main(URL 写死,无分支参数)
-    if len(sys.argv) > 2:
-        log("NOT_AUTHOR_NO_BRANCH")
-        return 0
     try:
-        _, remote_ver = fetch_remote_package()
+        branch = _resolve_channel(uid)
+    except RuntimeError as e:
+        log(f"ERROR:{e}")
+        return 1
+    try:
+        _, remote_ver = fetch_remote_package(branch)
     except Exception as e:
         log(f"ERROR:无法访问 GitHub({e})")
         return 1
@@ -246,10 +288,11 @@ def cmd_update() -> int:
     if uid == AUTHOR_USER_ID:
         log("AUTHOR_MODE")
         return 0
-    # 写死:非作者仅 main,无分支参数可传
-    if len(sys.argv) > 2:
-        log("NOT_AUTHOR_NO_BRANCH")
-        return 0
+    try:
+        branch = _resolve_channel(uid)
+    except RuntimeError as e:
+        log(f"ERROR:{e}")
+        return 1
     # 安全防呆:更新前先校验专家包根(防止误判路径导致误删)
     try:
         get_expert_root(require_marker=True)
@@ -258,7 +301,7 @@ def cmd_update() -> int:
         return 1
     tmp = Path(tempfile.mkdtemp(prefix="wp-dl-"))
     try:
-        src_dir, remote_ver = fetch_remote_package()
+        src_dir, remote_ver = fetch_remote_package(branch)
         local_ver = get_local_version()
         if local_ver.get("version") == remote_ver.get("version"):
             log("UP_TO_DATE")
@@ -279,10 +322,11 @@ def cmd_update() -> int:
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
-    if action == "check":
-        sys.exit(cmd_check())
-    elif action == "update":
-        sys.exit(cmd_update())
+    if action in ("check", "update"):
+        if action == "check":
+            sys.exit(cmd_check())
+        else:
+            sys.exit(cmd_update())
     else:
-        log("用法: python3 auto_update.py [check|update]")
+        log("用法: python3 auto_update.py [check|update] [--channel main|pre]")
         sys.exit(2)
