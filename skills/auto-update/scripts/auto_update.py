@@ -202,7 +202,10 @@ def apply_update(src_dir: Path) -> int:
     def is_excluded(rel: Path) -> bool:
         return any(part in EXCLUDE_NAMES for part in rel.parts)
 
-    # 1. 核心:覆盖/新增 src 中的文件
+    # 核心:覆盖/新增 src 中的文件
+    # 注意: 更新只做"覆盖+新增", 永不删除本地文件——防止误删用户文件/技能目录
+    # (旧版曾因"删除多余文件"逻辑误删 ismartgo-token 等, 已彻底移除删除能力;
+    #  残留文件无害, 防降级已阻止通道混用导致的多余文件出现)
     for rel in [p.relative_to(src_dir) for p in src_dir.rglob("*") if p.is_file()]:
         if is_excluded(rel):
             continue
@@ -212,36 +215,6 @@ def apply_update(src_dir: Path) -> int:
             shutil.copy2(s, d)
         except Exception:
             fail_count += 1
-
-    # 2. 清理(尽力而为,不阻断):删除 src 已不存在的多余文件
-    for p in list(root.rglob("*")):
-        if not p.is_file():
-            continue
-        try:
-            rel = p.relative_to(root)
-        except ValueError:
-            continue
-        if is_excluded(rel):
-            continue
-        if not (src_dir / rel).exists():
-            try:
-                p.unlink()
-            except Exception:
-                pass
-
-    # 3. 清理(尽力而为,不阻断):删除多余空目录
-    for d in sorted([p for p in root.rglob("*") if p.is_dir()], reverse=True):
-        try:
-            rel = d.relative_to(root)
-        except ValueError:
-            continue
-        if is_excluded(rel):
-            continue
-        try:
-            if not any(d.iterdir()):
-                d.rmdir()
-        except Exception:
-            pass
     return fail_count
 
 
