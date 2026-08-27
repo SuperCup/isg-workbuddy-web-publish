@@ -568,52 +568,66 @@ def auto_login(
 
 
 def _fetch_and_save_user(cookie_header: str):
-    """登录成功后, 尝试从平台获取当前用户信息(登录账号/用户ID/部门),
-    保存到 ~/.workbuddy/ismartgo_user.json, 供知识采集器作为 member_id 与部门判定。
+    """登录成功后, 获取当前用户信息并保存到 ~/.workbuddy/ismartgo_user.json,
+    供知识采集器作为 member_id(userid) 与部门判定。
+
+    方案(已实测可用):
+      1. 从 SSO cookie portalsv_sso_user 解析 userid(格式: userid;过期时间;hash, url编码)
+      2. 调组织架构树 usertree, 按 userid 关联出 姓名/部门
     失败不阻塞登录(静默)。"""
     import requests as req
+    from urllib.parse import unquote
     try:
+        # 1) 从 cookie 解析 userid
+        userid = ""
+        for seg in cookie_header.split(';'):
+            seg = seg.strip()
+            if seg.startswith('portalsv_sso_user='):
+                raw = seg.split('=', 1)[1].strip()
+                try:
+                    userid = unquote(raw).split(';')[0].strip()
+                except Exception:
+                    userid = ""
+                break
+        # 2) 拉组织架构树, 关联 userid -> (name, dept)
+        name, dept = "", ""
         resp = req.get(
-            "https://op.ismartgo.cn/deliverysv/web/auth/userList?pageNo=1&pageSize=1000&status=1",
-            headers={"Cookie": cookie_header, "User-Agent": USER_AGENT, "Accept": "application/json"},
+            "https://op.ismartgo.cn/deliverysv/api/portal/usertree",
+            headers={"Cookie": cookie_header, "User-Agent": USER_AGENT,
+                     "Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
+                     "Referer": "https://op.ismartgo.cn/"},
             timeout=20,
         )
-        if resp.status_code != 200:
-            _log(f"获取用户列表失败(HTTP {resp.status_code}, 不影响登录)")
-            return None
-        data = resp.json()
-        result = data.get("result", data) if isinstance(data, dict) else data
-        users = None
-        if isinstance(result, dict):
-            users = result.get("list") or result.get("rows") or result.get("data") or result.get("users")
-        elif isinstance(result, list):
-            users = result
-        if not isinstance(users, list) or not users:
-            _log("用户列表为空或结构未识别(不影响登录)")
-            return None
+        if resp.status_code == 200:
+            try:
+                tree = resp.json()
+            except Exception:
+                tree = {}
+            nodes = tree.get("result", []) if isinstance(tree, dict) else tree
+            def _walk(ns):
+                nonlocal name, dept
+                for n in ns or []:
+                    for u in (n.get("users") or []):
+                        if userid and str(u.get("id")) == str(userid):
+                            name = u.get("name", "")
+                            dept = n.get("name", "")
+                            return True
+                    if _walk(n.get("children") or []):
+                        return True
+                return False
+            _walk(nodes if isinstance(nodes, list) else [])
         cfg = _load_config()
-        account = cfg.get("username", "")
-        match = None
-        for u in users:
-            if not isinstance(u, dict):
-                continue
-            ua = str(u.get("account") or u.get("loginName") or u.get("username") or u.get("userName") or "")
-            if account and ua and account.lower() == ua.lower():
-                match = u
-                break
-        if match is None:
-            match = users[0]
         info = {
-            "account": match.get("account") or match.get("loginName") or match.get("username") or match.get("userName") or account,
-            "userid": str(match.get("userId") or match.get("userid") or match.get("id") or ""),
-            "name": match.get("name") or match.get("realName") or "",
-            "dept": match.get("dept") or match.get("department") or match.get("deptName") or "",
-            "org": match.get("orgName") or match.get("company") or match.get("org") or "",
+            "account": cfg.get("username", ""),
+            "userid": userid,
+            "name": name,
+            "dept": dept,
+            "org": "",
             "savedAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         user_file = HOME_DIR / "ismartgo_user.json"
         save_json(user_file, info)
-        _log(f"已保存登录用户信息(账号 {_mask(str(info.get('account','')))}, dept={info.get('dept') or '未知'})")
+        _log(f"已保存登录用户信息(账号 {_mask(str(info.get('account','')))}, userid={userid}, 部门={dept or '未知'})")
         return info
     except Exception as e:
         _log(f"获取用户信息失败(不影响登录): {e}")
