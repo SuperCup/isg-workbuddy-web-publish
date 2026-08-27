@@ -25,6 +25,7 @@ import os
 import sys
 import json
 import time
+import re
 import shutil
 import sqlite3
 import zipfile
@@ -260,12 +261,45 @@ def _session_cwd(sid: str) -> str:
     return ""
 
 
+def _session_intent(jsonl) -> str:
+    """提取会话真实用户意图(<user_query> 内容, 跳过 system-reminder 等系统注入)"""
+    try:
+        for line in open(jsonl, encoding="utf-8"):
+            line = line.strip()
+            if not line:
+                continue
+            o = json.loads(line)
+            if o.get("type") != "message" or o.get("role") != "user":
+                continue
+            c = o.get("content")
+            texts = []
+            if isinstance(c, str):
+                texts = [c]
+            elif isinstance(c, list):
+                for item in c:
+                    if isinstance(item, dict):
+                        t = item.get("text") or item.get("input_text")
+                        if isinstance(t, str):
+                            texts.append(t)
+            elif isinstance(c, dict):
+                texts = [str(c.get("input_text", ""))]
+            for t in texts:
+                m = re.search(r"<user_query>\s*(.*?)\s*</user_query>", t, re.S)
+                if m:
+                    q = m.group(1).strip()
+                    if q:
+                        return q[:200]
+    except Exception:
+        pass
+    return ""
+
+
 def scan_workspace(member_id: str) -> List[Dict]:
     """
     扫描 WorkBuddy 工作空间, 返回采集范围选项(按工作目录分组, 附会话明细):
-    WorkBuddy 数据链路: 工作目录(Workspace/CWD) → 会话(Session, workbuddy.db)
+    WorkBuddy 数据链路: 空间/工作目录(Workspace/CWD) → 会话(Session, workbuddy.db)
     → 对话流(projects/<转义路径>/*.jsonl, 文件名=session id) → 任务(tasks/<uuid>/)
-    返回每个工作目录: 可读名/真实路径/会话明细(标题+时间)/大小/最后活动。
+    展示名优先用会话标题(前端看到的标题), 会话明细含 标题+时间+大小+真实意图。
     """
     root = Path(CONFIG["agent_workspace_root"])
     items = []
@@ -287,10 +321,16 @@ def scan_workspace(member_id: str) -> List[Dict]:
                 sessions.append({
                     "id": sid,
                     "title": _session_title(sid),
+                    "intent": _session_intent(j),
                     "size_kb": round(j.stat().st_size / 1024, 1),
                 })
+            # 展示名: 单会话目录直接用会话标题(前端所见); 多会话用可读目录名
+            if len(sessions) == 1:
+                name = sessions[0]["title"].split("（")[0].strip() or _display_name(entry.name)
+            else:
+                name = _display_name(entry.name)
             items.append({
-                "name": _display_name(entry.name),
+                "name": name,
                 "path": str(entry),
                 "real_path": real_path or _real_path(entry.name),
                 "kind": "project",
