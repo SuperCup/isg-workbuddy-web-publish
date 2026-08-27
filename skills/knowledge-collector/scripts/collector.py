@@ -364,26 +364,35 @@ def list_for_selection(member_id: str, time_range: str = "month") -> List[Dict]:
 
 
 # ============================================================
-# 提醒频率控制(7天): 到流程末尾时判断要不要提醒执行
+# 提醒频率控制: 到流程末尾时判断要不要提醒执行
+#   首次无状态      → 立即提醒(first_time)
+#   REJECTED(拒绝) → 每日提醒一次(1 天), 直至成功上传刷新状态
+#   DONE(成功上传) → 按 reminder_interval_days(默认7天)间隔提醒
 # ============================================================
 def reminder_state(member_id: str) -> Dict:
     """判断当前是否该提醒用户执行采集
-    返回: {should_remind: bool, reason: 'first_time|due|within_interval', last_collect_at}
-    规则: 从未成功采集过 → 提醒; 距上次成功采集(已上传OSS) >= interval → 提醒; 否则不提醒
+    返回: {should_remind: bool, reason: 'first_time|rejected_due|rejected_soon|due|within_interval', last_collect_at, state}
+    规则:
+      - 从未有状态 → 提醒(first_time)
+      - state=rejected → 距上次拒绝 >= 1 天 → 提醒(rejected_due); 否则不提醒(rejected_soon)
+      - state=done(成功上传OSS) → 距上次成功 >= reminder_interval_days(默认7) → 提醒(due); 否则不提醒(within_interval)
+      - 其他中间态(accept/collecting等) → 视为未成功, 距上次更新时间 >= 1 天则提醒(兜底)
     注意: last_collect_at 仅在「知识卡片落盘 + 上传 OSS 成功」后刷新(见 mark_done 调用条件),
           上传失败不会刷新, 下次仍会提醒。
     """
     p = state_path(member_id)
+    state = None
     last = None
     if p.exists():
         try:
-            last = json.loads(p.read_text(encoding="utf-8")).get("last_collect_at")
+            data = json.loads(p.read_text(encoding="utf-8"))
+            state = data.get("state")
+            last = data.get("last_collect_at") or data.get("rejected_at") or data.get("updated_at")
         except Exception:
-            last = None
-    interval = int(CONFIG["reminder_interval_days"])
+            state, last = None, None
     if not last:
-        return {"should_remind": True, "reason": "first_time", "last_collect_at": None}
-    # 解析上次执行时间
+        return {"should_remind": True, "reason": "first_time", "last_collect_at": None, "state": state}
+    # 解析上次时间
     try:
         last_dt = datetime.datetime.fromisoformat(last)
         if last_dt.tzinfo is not None:
@@ -391,12 +400,26 @@ def reminder_state(member_id: str) -> Dict:
     except Exception:
         last_dt = None
     if last_dt is None:
-        return {"should_remind": True, "reason": "invalid_state", "last_collect_at": last}
+        return {"should_remind": True, "reason": "invalid_state", "last_collect_at": last, "state": state}
     days = (datetime.datetime.now() - last_dt).days
-    if days >= interval:
-        return {"should_remind": True, "reason": "due", "last_collect_at": last}
-    return {"should_remind": False, "reason": "within_interval", "last_collect_at": last,
-            "days_left": interval - days}
+    if state == Status.REJECTED:
+        # 拒绝后每日提醒一次, 直至成功上传刷新状态
+        if days >= 1:
+            return {"should_remind": True, "reason": "rejected_due", "last_collect_at": last, "state": state}
+        return {"should_remind": False, "reason": "rejected_soon", "last_collect_at": last, "state": state,
+                "days_left": 1 - days}
+    if state == Status.DONE:
+        # 成功上传后按固定间隔提醒
+        interval = int(CONFIG["reminder_interval_days"])
+        if days >= interval:
+            return {"should_remind": True, "reason": "due", "last_collect_at": last, "state": state}
+        return {"should_remind": False, "reason": "within_interval", "last_collect_at": last, "state": state,
+                "days_left": interval - days}
+    # 其他中间态兜底: 距上次动作 >= 1 天则提醒
+    if days >= 1:
+        return {"should_remind": True, "reason": "stale_state", "last_collect_at": last, "state": state}
+    return {"should_remind": False, "reason": "recent_activity", "last_collect_at": last, "state": state,
+            "days_left": 1 - days}
 
 
 def mark_done(member_id: str, collect_result: Dict) -> Dict:

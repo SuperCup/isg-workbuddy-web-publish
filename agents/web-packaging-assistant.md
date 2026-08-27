@@ -111,7 +111,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 
 ### 触发时机
 
-- **流程末尾提醒（强制，见 Step 12）**：打包/上传流程结束时**必须**运行 `collector.py --action trigger`，若 `should_remind=true` 则主动发起采集（**7 天内不重复提醒**，且**仅在上次采集成功并上传 OSS 后**才开始计时；上传失败不刷新，下次仍会提醒）；**注意：这是打包流程的固定环节，不允许跳过**
+- **流程末尾提醒（强制，见 Step 13）**：打包/上传流程结束时**必须**运行 `collector.py --action trigger`，若 `should_remind=true` 则主动发起采集（**7 天内不重复提醒**，且**仅在上次采集成功并上传 OSS 后**才开始计时；上传失败不刷新，下次仍会提醒）；**注意：这是打包流程的固定环节，不允许跳过**
 - **用户主动提出**：用户说"上传知识 / 收集知识 / 沉淀知识 / 知识库"等（含同义表达）时触发
 
 ### 执行规则（严格遵守）
@@ -687,21 +687,49 @@ curl -X POST "https://agent.ismartgo.com/{workspace}/{package}/upload?token={tok
 curl -X POST "https://agent.ismartgo.com/{workspace}/{package}/upload?token={token}" -F "file=@output.zip" -F "title=我的页面"
 ```
 
-### Step 11：上传后校验 + 告知分享地址
+### Step 11：设置访问类型（上传成功后必做，不可跳过）
+
+**上传成功后必须询问用户访问类型**，用 **WorkBuddy 选择组件**（3 个选项，点击选择，禁止纯文本输入）：
+
+| 选项 | accessType | 说明 |
+|------|-----------|------|
+| **公开访问（默认）** | `PUBLIC` | 任何人可通过链接访问 |
+| **Token 访问** | `TOKEN` | 需创建者设置 Token，分享的外部访问链接**必须拼接该 token** 才能访问页面（如 `https://agent.ismartgo.com/qingpi/weekly?t=123456`） |
+| **禁用** | `DISABLED` | 除创建者外其他人都不能访问该链接 |
+
+**交互要点**：
+- 默认推荐「公开访问」，但**必须让用户选择**（WorkBuddy 选择组件），不得擅自决定
+- 用户选「Token 访问」时，**询问用户设置 Token 值**（如 6 位数字），不得自动生成后不回显；同时可让用户填写可选的 title/description（若上传时未提供）
+- 用户选「禁用」时，仅需确认
+
+**执行命令**：
+```bash
+python3 skills/ismartgo-token/scripts/token_manager.py set-access-type \
+  --workspace <workspace> --package <package> \
+  --access-type PUBLIC|TOKEN|DISABLED \
+  [--access-token <token>] [--title <标题>] [--description <描述>] [--token-expire-at <ISO时间>]
+```
+
+- 输出 `访问类型已设置为 X` → 成功，继续 Step 12
+- 输出 `ERROR:...登录` → 引导用户先登录（`login-smart`），登录后重试本步
+- 设置失败时**不阻塞**交付：告知用户访问类型未生效及原因，仍交付访问地址
+
+### Step 12：上传后校验 + 告知分享地址
 
 上传成功后**必须**做：
 
 1. `curl` 校验线上 HTML 含 3 个 og（若配置了分享卡片）、图片 URL 返回 200
-2. 告知：
-   - **访问地址**：`https://agent.ismartgo.com/{workspace}/{package}/`
-   - **微信/企微/朋友圈分享地址**（若配置了分享卡片）：`https://agent.ismartgo.com/{workspace}/{package}/?v=YYYYMMDDHHmm`
+2. 告知（**按访问类型给出对应地址**）：
+   - **PUBLIC（公开）**：`https://agent.ismartgo.com/{workspace}/{package}/`（微信/企微分享用带 `?v=` 的地址）
+   - **TOKEN（Token 访问）**：`https://agent.ismartgo.com/{workspace}/{package}/?t={accessToken}`（外部访问必须拼接 `?t=`，分享时带 `&v=` 或 `?t=xxx&v=xxx` 规避缓存）
+   - **DISABLED（禁用）**：`https://agent.ismartgo.com/{workspace}/{package}/`（仅创建者可访问，外部人员无法打开）
 3. **分享技巧**（若配置了分享卡片）：
    - 复制带 `?v=` 的地址，在微信或企微中新建消息粘贴；朋友圈发新帖用同一链接
    - 不要转发旧消息验证
    - 每次改 OG 或重传后，更换新的 `?v=` 再测
 4. 若校验失败，按「已部署仍不出卡」继续处理，不要只甩一个裸 URL
 
-### Step 12：知识采集提醒（流程末尾强制环节，不可跳过）
+### Step 13：知识采集提醒（流程末尾强制环节，不可跳过）
 
 **打包/上传流程结束、向用户交付结果之前，必须执行一次知识采集提醒检查**（这是采集入口之一，与「用户主动提出采集」并列）：
 

@@ -1049,6 +1049,73 @@ def list_spaces() -> dict:
     return {"ok": True, "spaces": spaces}
 
 
+def set_access_type(workspace: str, package: str, access_type: str,
+                    access_token: str = "", title: str = "", description: str = "",
+                    token_expire_at: str = "") -> dict:
+    """
+    设置 workspace 下 package 的访问类型(公开/Token访问/禁用)。
+
+    access_type: PUBLIC(公开,默认) | TOKEN(Token访问) | DISABLED(禁用)
+    - TOKEN 模式: 需提供 access_token(访问口令), 外部链接需拼接 ?t=<token> 才能访问
+    - DISABLED 模式: 除创建者外其他人均无法访问
+
+    接口: PUT/POST {BASE_URL}/api/web/spaces/<workspace>/packages/<package>
+    body: {code, title, description, accessType, accessToken, tokenExpireAt}
+
+    返回: {"ok": True, "message": "..."} 或 {"ok": False, "message": "..."}
+    """
+    access_type = (access_type or "PUBLIC").upper()
+    if access_type not in ("PUBLIC", "TOKEN", "DISABLED"):
+        return {"ok": False, "message": f"access_type 非法: {access_type}(应为 PUBLIC/TOKEN/DISABLED)"}
+    if access_type == "TOKEN" and not access_token:
+        return {"ok": False, "message": "TOKEN 访问模式必须提供 access_token(访问口令)"}
+
+    store = SessionStore()
+    data = store.load()
+    if not data:
+        return {"ok": False, "message": "未登录（无会话文件），请先执行 login 完成 SSO 登录。"}
+
+    cookies = data.get("cookies", [])
+    ok, renewed = _api_verify_session(cookies)
+    if not ok:
+        return {"ok": False, "message": "会话已失效（SSO cookie 过期），请先执行 login 完成一次浏览器登录。"}
+    _persist_renewed_cookies(renewed)
+
+    s = _build_session(renewed)
+    s.headers.update({
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    body = {
+        "code": package,
+        "title": title,
+        "description": description,
+        "accessType": access_type,
+        "accessToken": access_token,
+        "tokenExpireAt": token_expire_at,
+    }
+    url = f"{BASE_URL}/api/web/spaces/{workspace}/packages/{package}"
+    try:
+        # 接口仅支持 PUT(实测 POST 返回 errcode 101 not supported), 先 PUT; PUT 失败再尝试 POST
+        resp = s.put(url, json=body, allow_redirects=True, timeout=30)
+        if resp.status_code in (405, 404):
+            resp = s.post(url, json=body, allow_redirects=True, timeout=30)
+        data = resp.json()
+    except Exception as e:
+        return {"ok": False, "message": f"设置访问类型失败: {e}"}
+
+    if data.get("errcode") == 106:
+        return {"ok": False, "message": "请求登录：接口需要有效会话，请先执行 login 完成浏览器登录后重试。"}
+    if data.get("errcode") == 101:
+        # POST not supported → 尝试 PUT 是正确路径; 若 PUT 也返回 101, 说明接口不接受
+        return {"ok": False, "message": f"接口不支持该请求方式: {json.dumps(data, ensure_ascii=False)[:300]}"}
+    if data.get("errcode") not in (None, 0) and data.get("errcode") != 200:
+        return {"ok": False, "message": f"设置失败: {json.dumps(data, ensure_ascii=False)[:500]}"}
+    return {"ok": True, "message": f"访问类型已设置为 {access_type} (workspace={workspace}, package={package})",
+            "response": data}
+
+
 # ─── Playwright 辅助 ───────────────────────────────────
 
 def await_cookies(context) -> list:
@@ -1110,6 +1177,19 @@ if __name__ == "__main__":
     sub.add_parser("clear", help="清除所有缓存")
     sub.add_parser("status", help="查看状态")
     sub.add_parser("list-spaces", help="列出当前账号可访问的 workspace 及 package")
+    parser_access = sub.add_parser(
+        "set-access-type", help="设置 package 访问类型(公开PUBLIC/Token访问TOKEN/禁用DISABLED)"
+    )
+    parser_access.add_argument("--workspace", required=True, help="workspace 编码(如 qingpi)")
+    parser_access.add_argument("--package", required=True, help="package 编码(如 weekly)")
+    parser_access.add_argument(
+        "--access-type", choices=["PUBLIC", "TOKEN", "DISABLED"], default="PUBLIC",
+        help="访问类型(默认 PUBLIC)"
+    )
+    parser_access.add_argument("--access-token", default="", help="Token 访问模式的访问口令(如 123456)")
+    parser_access.add_argument("--title", default="", help="页面标题(可选)")
+    parser_access.add_argument("--description", default="", help="页面描述(可选)")
+    parser_access.add_argument("--token-expire-at", default="", help="Token 过期时间(可选, ISO 格式)")
 
     args = parser.parse_args()
 
@@ -1206,6 +1286,23 @@ if __name__ == "__main__":
                 print(f"workspace: {sp['workspace']} ({sp['name']}) [无 package]")
         if not spaces:
             print(result.get("message", "当前账号下没有可用 workspace。"))
+
+    elif args.cmd == "set-access-type":
+        result = set_access_type(
+            workspace=args.workspace,
+            package=args.package,
+            access_type=args.access_type,
+            access_token=args.access_token,
+            title=args.title,
+            description=args.description,
+            token_expire_at=args.token_expire_at,
+        )
+        if not result.get("ok"):
+            print(f"ERROR: {result['message']}", file=sys.stderr)
+            if "登录" in result["message"] or "会话" in result["message"]:
+                print_login_choices()
+            sys.exit(1)
+        print(result["message"])
 
     elif args.cmd == "status":
         store = SessionStore()

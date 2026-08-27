@@ -33,6 +33,10 @@ python3 scripts/token_manager.py get-token
 # 列出 workspace 及 package（选择上传目标前调用，主动展示给用户）
 python3 scripts/token_manager.py list-spaces
 
+# 设置 package 访问类型（上传成功后必做：公开PUBLIC/Token访问TOKEN/禁用DISABLED）
+python3 scripts/token_manager.py set-access-type --workspace <ws> --package <pkg> \
+    --access-type PUBLIC|TOKEN|DISABLED [--access-token <token>] [--title <标题>] [--description <描述>]
+
 # 手动登录（打开浏览器，人工完成）
 python3 scripts/token_manager.py login
 
@@ -48,6 +52,12 @@ python3 scripts/token_manager.py clear
 ```
 
 **重要：`list-spaces` 是主动拉取 workspace/package 列表的唯一入口。** 不要先询问用户有哪些 workspace/package，直接执行该命令获取列表并展示给用户选择。若返回"请求登录"，先执行 `login` 或 `login-auto` 完成登录，再重新执行 `list-spaces`。
+
+**访问类型说明（set-access-type）**：
+- `PUBLIC` 公开访问（默认）：任何人可通过链接访问
+- `TOKEN` Token 访问：需创建者设置 `--access-token`，外部访问链接必须拼接 `?t=<token>` 才能访问页面（如 `https://agent.ismartgo.com/qingpi/weekly?t=123456`）
+- `DISABLED` 禁用：除创建者外其他人都不能访问该链接
+- 接口：`PUT {BASE_URL}/api/web/spaces/<workspace>/packages/<package>`，body 含 `code/title/description/accessType/accessToken/tokenExpireAt`（**实测接口仅支持 PUT，POST 返回 errcode 101**）
 
 ## 半隐式登录（login-auto）
 
