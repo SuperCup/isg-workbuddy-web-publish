@@ -85,9 +85,9 @@ python3 scripts/token_manager.py clear
 - 提交账号密码后脚本立即返回（`<3s`），主对话继续；
 - 用户提供验证码后调第二步命令（`~3s`），整个交互总耗时 `~6s`。
 
-**第一步：提交账号密码**
+**第一步：提交账号密码**（**账号为公司的 PMS 统一账号**，即登录 PMS/PMP 系统的同一套账号；引导用户时需明确说明是 PMS 账号，避免用户误提供第三方平台账号）
 ```bash
-python3 scripts/token_manager.py login-smart --method http --username <账号> --password <密码>
+python3 scripts/token_manager.py login-smart --method http --username <PMS账号> --password <PMS密码>
 ```
 - 退出码 0 + 输出 `TOKEN: ...` → 登录成功
 - 退出码 2 + `NEED_CAPTCHA: ...` → 进入第二步（脚本已保存中间状态到 `~/.workbuddy/ismartgo_pending_login.json`，有效期 10 分钟）
@@ -107,9 +107,9 @@ python3 scripts/token_manager.py login-captcha --code <4位数字>
 
 **device 信任机制（减少验证码）**：登录成功后自动持久化设备号（存 `~/.workbuddy/ismartgo_config.json`），下次登录自动带回 → **大幅降低验证码触发概率**。首次登录无 device 大概率需要验证码，属正常。
 
-**预存凭据**（仅首次需要）：
+**预存凭据**（仅首次需要，账号为 PMS 统一账号）：
 ```bash
-python3 scripts/token_manager.py save-credentials -u <账号> -p <密码>    # 默认 --method http
+python3 scripts/token_manager.py save-credentials -u <PMS账号> -p <PMS密码>    # 默认 --method http
 ```
 
 **注意事项**：

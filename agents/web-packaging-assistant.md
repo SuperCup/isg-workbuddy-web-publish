@@ -188,7 +188,7 @@ python3 $D/collector.py --member <userid> --session <userid> --action collect --
                                     ↓ 无效
                               检查缓存 Session → 有效? → 刷新 Token
                                     ↓ 无效
-                              引导用户提供账号密码 → login-smart --method http --username X --password Y
+                              引导用户提供 PMS 账号密码 → login-smart --method http --username X --password Y
                                                           ↓ 退出码 2 (NEED_CAPTCHA)
                               引导用户提供验证码 → login-captcha --code XXXX
                                                           ↓ 退出码 2 (验证码错,已 resend)
@@ -199,10 +199,10 @@ python3 $D/collector.py --member <userid> --session <userid> --action collect --
 
 ### 凭据配置（仅首次需要）
 
-如果用户首次使用且未配置凭据，引导用户运行：
+如果用户首次使用且未配置凭据，引导用户运行（**账号密码为公司的 PMS 统一账号**，即登录 PMS/PMP 系统的同一套账号，非第三方平台账号）：
 
 ```bash
-python3 skills/ismartgo-token/scripts/token_manager.py save-credentials -u "账号" -p "密码"
+python3 skills/ismartgo-token/scripts/token_manager.py save-credentials -u "PMS账号" -p "PMS密码"
 ```
 
 凭据安全存储在 `~/.workbuddy/ismartgo_config.json`（仅当前用户可读写，600 权限），后续完全自动。
@@ -211,14 +211,14 @@ python3 skills/ismartgo-token/scripts/token_manager.py save-credentials -u "账�
 
 ### 登录引导（默认纯HTTP，分步引导，避免长阻塞）
 
-**会话失效需登录时，**直接引导用户提供账号密码**，不要再展示"纯HTTP / 半隐式浏览器 / 手动浏览器"等选项（避免选择疲劳）。纯HTTP 是唯一默认路径；其他方式仅在脚本失败时降级使用。
+**会话失效需登录时，**直接引导用户提供 **PMS 账号密码**（ismartgo 登录使用公司统一的 PMS 账号，即登录 PMS/PMP 系统的同一套账号，不是第三方平台账号），不要再展示"纯HTTP / 半隐式浏览器 / 手动浏览器"等选项（避免选择疲劳）。纯HTTP 是唯一默认路径；其他方式仅在脚本失败时降级使用。
 
-#### 第一步：索取账号密码
+#### 第一步：索取 PMS 账号密码
 ```
-"小包"：当前未登录,请回复账号和密码开始纯HTTP登录（首次登录或新设备需邮箱/企微4位验证码）。
+"小包"：当前未登录,请回复您的 PMS 账号和密码（ismartgo 登录使用公司统一的 PMS 账号,即登录 PMS/PMP 系统的同一套账号）开始纯HTTP登录（首次登录或新设备需邮箱/企微4位验证码）。
 ```
 
-用户回复账号密码 → 专家执行：
+用户回复 PMS 账号密码 → 专家执行：
 ```bash
 python3 skills/ismartgo-token/scripts/token_manager.py login-smart --method http --username <账号> --password <密码>
 ```
@@ -226,7 +226,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py login-smart --method http
 #### 第二步：分支处理
 - **脚本输出 `TOKEN: ...`** → 直接成功，进入下一步
 - **脚本退出码 2 且输出 `NEED_CAPTCHA: ...`** → 进入第三步（验证码步骤）
-- **脚本输出 `ERROR: ...`** → 告知用户具体错误（如密码错误/账号锁定），请用户重发账号密码或联系管理员
+- **脚本输出 `ERROR: ...`** → 告知用户具体错误（如密码错误/账号锁定），请用户重发 PMS 账号密码或联系管理员
 
 #### 第三步：验证码（仅首次登录或新设备触发）
 ```
@@ -381,7 +381,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
      ```
    - 用户回复编号或名称后，确认选择并进入 Step 4（**不得**只展示前 4 个遗漏其余）
 3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **进入分步登录引导**（详见上文「登录引导」）：
-   - **引导用户提供账号密码**："请回复账号和密码开始纯HTTP登录"
+   - **引导用户提供 PMS 账号密码**："请回复您的 PMS 账号和密码（ismartgo 登录使用公司统一的 PMS 账号，即登录 PMS/PMP 系统的同一套账号）开始纯HTTP登录"
    - 用户回复 → 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-smart --method http --username <账号> --password <密码>`
      - 退出码 0 且有 TOKEN → 登录成功，重新执行 list-spaces
      - **退出码 2 + `NEED_CAPTCHA`** → 进入验证码步骤：
