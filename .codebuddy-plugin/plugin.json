@@ -1,7 +1,7 @@
 {
   "name": "web-packaging-assistant",
-  "version": "1.4.8",
-  "description": "Help users package frontend projects into platform-compliant ZIP files for the ismartgo static hosting platform, ensuring correct relative paths, WeChat/WeCom share cards via OG tags, and platform-compatible build configuration. Auto-updates itself from the production branch for non-author users. Includes customer knowledge collection for the company's client (brand) knowledge base.",
+  "version": "1.5.0",
+  "description": "Help users package frontend projects into platform-compliant ZIP files for the ismartgo static hosting platform, ensuring correct relative paths and platform-compatible build configuration. Auto-updates itself from the production branch for non-author users. Includes customer knowledge collection for the company's client (brand) knowledge base.",
   "author": {
     "name": "WorkBuddy",
     "email": ""
@@ -25,8 +25,8 @@
     "zh": "WEB部署Agent"
   },
   "displayDescription": {
-    "en": "Packages frontend projects into platform-compliant ZIP files, auto-checks relative paths, configures WeChat/WeCom share cards, and uploads in one click.",
-    "zh": "打包前端项目为规范ZIP文件，自动检查路径配置，配置微信/企微分享卡片，一键上传托管平台。"
+    "en": "Packages frontend projects into platform-compliant ZIP files, auto-checks relative paths, confirms access type (public/token/disabled), and uploads in one click.",
+    "zh": "打包前端项目为规范ZIP文件，自动检查路径配置，确认访问类型（公开/Token/禁用），一键上传托管平台。"
   },
   "avatar": "avatars/expert.png",
   "categoryId": "02-Engineering",
@@ -57,10 +57,6 @@
     {
       "en": "Check if my project configuration meets the deployment requirements",
       "zh": "检查我的项目配置是否符合部署要求"
-    },
-    {
-      "en": "My page is deployed but WeChat still shows a plain link, help me fix it",
-      "zh": "页面已部署但微信仍只显示链接，帮我排查"
     }
   ],
   "sharedBy": "与大明一起成长"
