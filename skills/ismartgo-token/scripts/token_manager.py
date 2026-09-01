@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from playwright.sync_api import sync_playwright
+# playwright 采用惰性导入（仅手动/半隐式浏览器登录需要，纯HTTP模式不依赖）
 
 # ─── 常量 ──────────────────────────────────────────────
 BASE_URL = "https://agent.ismartgo.com"
@@ -37,6 +37,12 @@ CONFIG_FILE = HOME_DIR / "ismartgo_config.json"
 SSO_OAUTH_TMPL = (
     "https://op.ismartgo.cn/portalsso/oauth?p-appkey=aisites&p-redirect={redirect}"
 )
+# 纯 HTTP 登录接口（对应 Agent SSO 鉴权手册 portal_auth.py 的实现）
+SSO_BASE = "https://op.ismartgo.cn"
+SSO_SUBMIT_URL = f"{SSO_BASE}/portalsso/web/login/submit"   # 账号密码登录
+SSO_CHECK2_URL = f"{SSO_BASE}/portalsso/web/login/check2"    # 二次验证码
+SSO_RESEND_URL = f"{SSO_BASE}/portalsso/web/login/resend"    # 验证码重发(可选)
+SSO_LOGIN_REFERER = f"{SSO_BASE}/portalsso/h5/login.html"    # submit 需带 Referer
 CAPTCHA_FILE = HOME_DIR / "ismartgo_captcha.txt"   # 验证码轮询文件
 LOGIN_LOG_FILE = HOME_DIR / "ismartgo_login.log"   # 登录脚本实时日志
 CAPTCHA_WAIT_S = 180   # 等待用户/AI 写入验证码（用户需去邮箱/企微获取）
@@ -156,10 +162,18 @@ def interactive_login() -> dict:
 
     # 尝试启动 Chromium
     try:
+        from playwright.sync_api import sync_playwright
         browser = sync_playwright().start().chromium.launch(
             headless=False,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
         )
+    except ImportError:
+        return {
+            "ok": False,
+            "message": "未安装 playwright。手动登录需要浏览器支持，请执行: "
+                       "pip install playwright && playwright install chromium；"
+                       "或改用纯HTTP登录: login-smart --method http",
+        }
     except Exception as e:
         return {
             "ok": False,
@@ -329,10 +343,10 @@ def save_credentials(username: str, password: str, method: str | None = None):
 
 
 def _preferred_method() -> str | None:
-    """返回用户此前选定的登录方式：auto / manual / None（未选择）"""
+    """返回用户此前选定的登录方式：http / auto / manual / None（未选择）"""
     cfg = _load_config()
     m = cfg.get("method")
-    return m if m in ("auto", "manual") else None
+    return m if m in ("http", "auto", "manual") else None
 
 
 def _auto_credentials() -> tuple | None:
@@ -345,14 +359,16 @@ def _auto_credentials() -> tuple | None:
 
 
 def print_login_choices():
-    """打印两种登录方式选择提示（会话失效时展示）"""
+    """打印登录方式选择提示（会话失效时展示）"""
     print("\n⚠️ 本地无有效 SSO 会话，请选择登录方式：")
-    print("  方式 1（手动）   : 弹出浏览器窗口，由用户本人输入账号密码+验证码")
-    print("                   执行: token_manager.py login")
+    print("  方式 1（纯HTTP） : 无浏览器接口直登。推荐；带信任设备(device)可免验证码")
+    print("                   执行: token_manager.py login-smart --method http")
     print("  方式 2（半隐式）: 自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码")
     print("                   执行: token_manager.py login-smart --method auto")
-    print("                   或先保存凭据: token_manager.py save-credentials -u 账号 -p 密码")
-    print("选择后会自动记录偏好，下次仅需验证码。\n", flush=True)
+    print("  方式 3（手动）   : 弹出浏览器窗口，由用户本人输入账号密码+验证码")
+    print("                   执行: token_manager.py login")
+    print("  三种方式均需先保存凭据: token_manager.py save-credentials -u 账号 -p 密码")
+    print("选择后会自动记录偏好。\n", flush=True)
 
 
 # ─── 半隐式登录（账号密码 + 验证码文件轮询）─────────────
@@ -441,10 +457,13 @@ def auto_login(
     _log(f"SSO 登录页: {oauth_url[:80]}...")
 
     try:
+        from playwright.sync_api import sync_playwright
         browser = sync_playwright().start().chromium.launch(
             headless=not headed,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
         )
+    except ImportError:
+        return {"ok": False, "message": "未安装 playwright。半隐式登录需要浏览器支持，请执行: pip install playwright && playwright install chromium；或改用纯HTTP登录: login-smart --method http"}
     except Exception as e:
         return {"ok": False, "message": f"无法启动 Chromium（{e}）。请先执行: npx playwright install chromium"}
 
@@ -565,6 +584,235 @@ def auto_login(
         except Exception:
             pass
         return {"ok": False, "message": f"登录过程出错: {e}"}
+
+
+# ─── 纯 HTTP 登录（无浏览器，替代 Playwright 半隐式）─────────────
+# 对应 Agent SSO 鉴权操作手册(portal_auth.py)：
+#   submit(账号密码+device) → needcheck? check2(validcode) → oauth(p-appkey=aisites)
+#   → probe 验证 → 保存 cookies + device(信任设备, 下次免验证码)
+
+def _sso_headers(extra: dict | None = None) -> dict:
+    """SSO 登录接口通用请求头"""
+    h = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": SSO_LOGIN_REFERER,
+    }
+    if extra:
+        h.update(extra)
+    return h
+
+
+def _persist_device(device: str):
+    """持久化信任设备号(存 config)，下次 submit 带回可免验证码"""
+    if not device:
+        return
+    cfg = _load_config()
+    if cfg.get("device") != device:
+        cfg["device"] = device
+        _save_config(cfg)
+    _log(f"已持久化信任设备 {device}，下次登录将免验证码。")
+
+
+def _get_device() -> str:
+    """读取已持久化的信任设备号"""
+    return _load_config().get("device", "") or ""
+
+
+def http_login(
+    username: str,
+    password: str,
+    captcha_file: Path = CAPTCHA_FILE,
+    device: str = "",
+) -> dict:
+    """
+    纯 HTTP SSO 登录（无浏览器）：
+
+    1. POST /portalsso/web/login/submit (loginname/pwd/device)
+    2. needcheck=true → 轮询验证码文件 → POST /portalsso/web/login/check2
+       (验证码被拒 → 调 resend 重发, 最多 3 次)
+    3. GET /portalsso/oauth?p-appkey=aisites&p-redirect=<probe> 跟随 302 建立应用会话
+    4. probe API 验证会话有效 + 缓存 Token
+    5. 保存 cookies + device(信任设备) + 用户信息
+
+    返回: {"ok": True, "session": {...}, "message": "..."} 或 {"ok": False, "message": "..."}
+    """
+    import requests as req
+
+    # 清掉旧验证码文件，避免误用旧码
+    if captcha_file.exists():
+        try:
+            captcha_file.unlink()
+        except Exception:
+            pass
+
+    s = req.Session()
+    s.headers.update(_sso_headers())
+
+    try:
+        # 1. 账号密码登录
+        _log(f"纯HTTP登录: POST {SSO_SUBMIT_URL} (device={'有:' + device if device else '无,首次登录可能需验证码'})")
+        r = s.post(
+            SSO_SUBMIT_URL,
+            data={
+                "loginname": username,
+                "pwd": password,
+                "appkey": "",
+                "authcode": "",
+                "keeplogin": "0",
+                "device": device,
+            },
+            allow_redirects=False,
+            timeout=30,
+        )
+        try:
+            body = r.json()
+        except Exception:
+            return {"ok": False, "message": f"登录接口返回非 JSON (HTTP {r.status_code})，可能被风控拦截或接口变更: {r.text[:200]}"}
+        if body.get("errcode") != 0:
+            return {"ok": False, "message": f"登录失败: {body.get('errmsg') or body} (errcode={body.get('errcode')})"}
+        result = body.get("result") or {}
+        device = result.get("device") or device
+
+        # 2. 二次验证（needcheck=true）
+        if result.get("needcheck"):
+            _log(f"[READY_FOR_CAPTCHA] 需要二次验证，4 位验证码已发送到邮箱/企微，等待写入: {captcha_file}")
+            for attempt in range(1, 4):
+                code = _wait_captcha_file(captcha_file, CAPTCHA_WAIT_S)
+                if not code:
+                    return {"ok": False, "message": f"等待验证码超时（{CAPTCHA_WAIT_S}s），请重新执行 login-smart --method http。"}
+                _log(f"提交验证码（第 {attempt} 次）...")
+                r2 = s.post(SSO_CHECK2_URL, data={"validcode": code}, allow_redirects=False, timeout=30)
+                try:
+                    body2 = r2.json()
+                except Exception:
+                    body2 = {}
+                if body2.get("errcode") == 0:
+                    _log("验证码通过。")
+                    break
+                # 验证码被拒 → 重发取新码
+                _log(f"[CAPTCHA_ERROR] 第 {attempt} 次验证码被拒，请求重发新码...")
+                try:
+                    s.post(SSO_RESEND_URL, data={}, allow_redirects=False, timeout=15)
+                except Exception:
+                    pass
+                if captcha_file.exists():
+                    try:
+                        captcha_file.unlink()
+                    except Exception:
+                        pass
+            else:
+                return {"ok": False, "message": "验证码连续 3 次错误，请稍后重试。"}
+
+        # 3. OAuth 建立 aisites 应用会话
+        oauth_url = SSO_OAUTH_TMPL.format(redirect=quote(PROBE_URL, safe=""))
+        _log("OAuth 建立应用会话(p-appkey=aisites)...")
+        r3 = s.get(oauth_url, allow_redirects=False, timeout=30)
+        loc = r3.headers.get("location")
+        if loc:
+            s.get(loc, allow_redirects=True, timeout=30)
+
+        # 4. probe 验证会话 + 缓存 Token
+        r4 = s.get(PROBE_URL, allow_redirects=True, timeout=20)
+        if r4.status_code != 200:
+            return {"ok": False, "message": f"会话验证失败 (HTTP {r4.status_code})，可能 OAuth 未完成或应用会话未建立。"}
+        ctype = r4.headers.get("Content-Type", "")
+        text = r4.text.lstrip()
+        if "json" not in ctype and not text.startswith(("{", "[")):
+            return {"ok": False, "message": "会话验证返回了登录页（未真正登录成功）。"}
+        try:
+            verify_data = r4.json()
+            inner = verify_data.get("result", verify_data)
+            full_token = inner.get("token") or verify_data.get("token")
+            if full_token and not full_token.startswith("***"):
+                _cache_token(full_token)
+        except Exception:
+            pass
+
+        # 5. 保存会话
+        cookies = _session_cookies_to_list(s)
+        session = SessionStore().save({"cookies": cookies, "baseUrl": BASE_URL})
+
+        # 6. 持久化信任设备（下次免验证码）
+        if device:
+            _persist_device(device)
+
+        # 7. 用户信息（供知识采集器）
+        try:
+            cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            info = _fetch_and_save_user(cookie_header)
+            # 纯HTTP会话无 portalsv_sso_user cookie → userid 为空 → 走 deliverysv getUserInfo 兜底
+            if not (info or {}).get("userid"):
+                _log("本地 cookie 未解析出 userid，改用 deliverysv getUserInfo 兜底...")
+                _fetch_user_via_deliverysv(s)
+        except Exception:
+            pass
+
+        _log("登录成功！会话已保存。")
+        return {"ok": True, "session": session, "message": "纯HTTP登录成功，会话已保存。有效期内可直接调用接口，无需重复登录。"}
+
+    except Exception as e:
+        return {"ok": False, "message": f"登录过程出错: {e}"}
+
+
+def _fetch_user_via_deliverysv(session) -> dict | None:
+    """纯HTTP登录兜底：用同一 SSO 会话对 deliverysv 应用再 OAuth 一次，
+    调 getUserInfo 获取 userid/姓名，再经 usertree 关联部门。
+    参考 Agent SSO 鉴权手册：同一 SSO 会话可服务多个应用，无需重复输密码。
+    失败静默（不阻塞登录）。"""
+    try:
+        from urllib.parse import unquote
+        oauth = (
+            f"{SSO_BASE}/portalsso/oauth?p-appkey=deliverysv&p-state="
+            f"&p-redirect={quote('https://op.ismartgo.cn/deliverysv/web/index.html', safe='')}"
+        )
+        r = session.get(oauth, allow_redirects=False, timeout=20)
+        loc = r.headers.get("location")
+        if loc:
+            session.get(loc, allow_redirects=True, timeout=20)
+        resp = session.get(f"{SSO_BASE}/deliverysv/api/portal/getUserInfo", timeout=20)
+        data = resp.json()
+        result = data.get("result") or {}
+        userid = result.get("userid")
+        if not userid:
+            return None
+        # 部门关联：usertree 按 userid 匹配
+        name, dept = result.get("username", ""), ""
+        try:
+            tree = session.get(f"{SSO_BASE}/deliverysv/api/portal/usertree", timeout=20).json()
+            nodes = tree.get("result", []) if isinstance(tree, dict) else tree
+
+            def _walk(ns):
+                nonlocal name, dept
+                for n in ns or []:
+                    for u in (n.get("users") or []):
+                        if str(u.get("id")) == str(userid):
+                            name = u.get("name") or name
+                            dept = n.get("name", "")
+                            return True
+                    if _walk(n.get("children") or []):
+                        return True
+                return False
+            _walk(nodes if isinstance(nodes, list) else [])
+        except Exception:
+            pass
+        cfg = _load_config()
+        info = {
+            "account": cfg.get("username", ""),
+            "userid": str(userid),
+            "name": name,
+            "dept": dept,
+            "org": "",
+            "savedAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        user_file = HOME_DIR / "ismartgo_user.json"
+        save_json(user_file, info)
+        _log(f"已保存登录用户信息(getUserInfo: 账号 {_mask(str(info.get('account','')))}, userid={userid}, 部门={dept or '未知'})")
+        return info
+    except Exception as e:
+        _log(f"getUserInfo 兜底获取用户信息失败(不影响登录): {e}")
+        return None
 
 
 def _fetch_and_save_user(cookie_header: str):
@@ -703,9 +951,11 @@ def login_smart(
     """
     智能登录：先判定本地会话；失效则按用户偏好的方式登录。
 
-    - method=None：读偏好（auto → 半隐式；manual → 手动浏览器；无偏好 → 提示选择）
-    - method=auto/manual：记录偏好后按该方式执行
-    - 半隐式模式下：显式传入或已保存的凭据均可；仅凭据不存在时提示提供
+    - method=None：读偏好（http → 纯HTTP接口直登；auto → 半隐式浏览器；manual → 手动浏览器；
+      无偏好 → 默认 http）
+    - method=http/auto/manual：记录偏好后按该方式执行
+    - http/auto 模式下：显式传入或已保存的凭据均可；仅凭据不存在时提示提供
+    - http 模式会自动带信任设备(device)，有则免验证码
     """
     store = SessionStore()
 
@@ -717,44 +967,43 @@ def login_smart(
             _log("本地 SSO 会话有效，无需重新登录。")
             return {"ok": True, "message": "会话有效，无需登录。"}
 
-    # 2. 确定登录方式：显式指定 > 历史偏好
+    # 2. 确定登录方式：显式指定 > 历史偏好 > 默认 http
     if method is None:
-        method = _preferred_method()
+        method = _preferred_method() or "http"
+    if method not in ("http", "auto", "manual"):
+        return {"ok": False, "message": f"未知登录方式: {method}（应为 http/auto/manual）"}
 
-    if method is None:
-        # 3. 从未选择过 → 提示用户选择
-        print_login_choices()
-        return {
-            "ok": False,
-            "need_choice": True,
-            "message": "无有效 SSO 会话且未记录登录方式偏好，请选择："
-                       "login-smart --method auto（半隐式）或 --method manual（手动浏览器）。",
-        }
+    # 记录偏好
+    _save_config({**_load_config(), "method": method})
 
     if method == "manual":
-        _save_config({**_load_config(), "method": "manual"})
         _log("已记录登录偏好：手动浏览器登录。")
         return interactive_login()
 
-    # method == "auto"：半隐式
-    _save_config({**_load_config(), "method": "auto"})
+    # http / auto 均需凭据
     if not username or not password:
         creds = _auto_credentials()
         if creds:
             username, password = creds
-            _log(f"使用已保存凭据（账号 {_mask(username)}）自动登录...")
+            _log(f"使用已保存凭据（账号 {_mask(username)}）登录...")
         else:
             return {
                 "ok": False,
-                "message": "已选择半隐式登录，但本机未保存账号密码。"
+                "message": f"已选择{'纯HTTP' if method == 'http' else '半隐式'}登录，但本机未保存账号密码。"
                            "请提供账号密码（--username/--password），"
                            "或先执行 save-credentials -u 账号 -p 密码。",
             }
 
-    result = auto_login(username, password, captcha_file=captcha_file, headed=headed)
+    if method == "http":
+        _log("已记录登录偏好：纯HTTP接口直登。")
+        result = http_login(username, password, captcha_file=captcha_file, device=_get_device())
+    else:  # auto：半隐式浏览器
+        _log("已记录登录偏好：半隐式浏览器登录。")
+        result = auto_login(username, password, captcha_file=captcha_file, headed=headed)
+
     # 登录成功后持久化凭据（仅当 config 中尚无凭据，且本次为显式传入）
     if result.get("ok") and not _auto_credentials():
-        save_credentials(username, password, method="auto")
+        save_credentials(username, password, method=method)
     return result
 
 
@@ -1152,10 +1401,11 @@ if __name__ == "__main__":
     )
     parser_login_smart = sub.add_parser(
         "login-smart",
-        help="智能登录：判定会话 → 按已记录偏好登录；未记录则提示选择",
+        help="智能登录：判定会话 → 按已记录偏好登录；默认纯HTTP接口直登",
     )
     parser_login_smart.add_argument(
-        "--method", choices=["auto", "manual"], help="指定登录方式并记录偏好"
+        "--method", choices=["http", "auto", "manual"],
+        help="指定登录方式并记录偏好(http=纯HTTP接口直登/auto=半隐式浏览器/manual=手动浏览器)"
     )
     parser_login_smart.add_argument("--username", help="SSO 账号（半隐式）")
     parser_login_smart.add_argument("--password", help="SSO 密码（半隐式）")
@@ -1171,7 +1421,8 @@ if __name__ == "__main__":
     parser_save_creds.add_argument("-u", "--username", required=True, help="SSO 账号")
     parser_save_creds.add_argument("-p", "--password", required=True, help="SSO 密码")
     parser_save_creds.add_argument(
-        "--method", choices=["auto", "manual"], default="auto", help="登录方式偏好（默认 auto）"
+        "--method", choices=["http", "auto", "manual"], default="http",
+        help="登录方式偏好（默认 http=纯HTTP接口直登）"
     )
     sub.add_parser("pref", help="查看登录偏好与凭据状态（脱敏）")
     sub.add_parser("clear", help="清除所有缓存")
@@ -1246,7 +1497,7 @@ if __name__ == "__main__":
 
     elif args.cmd == "save-credentials":
         save_credentials(args.username, args.password, method=args.method)
-        print("凭据已保存。后续执行 login-smart 将自动使用半隐式登录（仅需验证码）。")
+        print(f"凭据已保存。后续执行 login-smart 将自动使用 {args.method} 方式登录。")
 
     elif args.cmd == "pref":
         cfg = _load_config()
