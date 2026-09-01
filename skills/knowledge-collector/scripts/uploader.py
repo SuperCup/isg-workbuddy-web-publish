@@ -365,6 +365,8 @@ def upload_result(member_id: str, cards: List[Dict],
     放到 agents/<member_id>/knowledge/...
     鉴权源由 config upload_mode 决定(sts/direct)。
     强规则: 所有上传的key必须落在 agents/<member_id>/ 下, 越权拒绝。
+    成功判定: 必须至少有一张「知识卡片」成功上传(附件/元数据不构成知识沉淀),
+              否则返回 ok=False, 上层将拒绝刷新 7 天提醒计时(防误报成功)。
     """
     try:
         bucket, cred = _get_auth_bucket(member_id)
@@ -397,6 +399,14 @@ def upload_result(member_id: str, cards: List[Dict],
         bucket.put_object_from_file(key, uif)
         uploaded.append(key)
 
+    # 4) 成功判定(防误报): 必须至少有一张「知识卡片」上传成功。
+    #    卡片全部未通过校验/为空时, 仅附件或元数据上传不视为成功——
+    #    否则上层误调 mark_done 会错误刷新 7 天提醒计时, 导致采集失败却不提醒。
+    card_keys = [k for k in uploaded if k.startswith(f"{prefix}knowledge/")]
+    if not card_keys:
+        return {"ok": False, "uploaded": uploaded, "prefix": prefix,
+                "error": "没有任何知识卡片上传成功(卡片全部未通过校验或内容为空), "
+                         "已拒绝刷新提醒计时"}
     return {"ok": True, "uploaded": uploaded, "prefix": prefix}
 
 
