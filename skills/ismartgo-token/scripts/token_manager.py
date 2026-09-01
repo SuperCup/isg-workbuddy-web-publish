@@ -263,12 +263,12 @@ def interactive_login() -> dict:
             }
 
         # 提取并缓存 Token（首次调用返回完整 Token）
+        # 注意: verify 响应中的 token 不是上传 token，勿缓存为 upload token
+        # （upload token 以 /api/web/me/upload-token 接口 GET/PUT 为准，见 get_token_from_session）
         try:
             verify_data = verify_resp.json()
             inner = verify_data.get("result", verify_data)
-            full_token = inner.get("token") or verify_data.get("token")
-            if full_token and not full_token.startswith("***"):
-                _cache_token(full_token)
+            _ = inner.get("token") or verify_data.get("token")
         except Exception:
             pass
 
@@ -675,9 +675,8 @@ def _complete_login(s, device: str) -> dict:
         try:
             verify_data = r4.json()
             inner = verify_data.get("result", verify_data)
-            full_token = inner.get("token") or verify_data.get("token")
-            if full_token and not full_token.startswith("***"):
-                _cache_token(full_token)
+            # 勿缓存 verify 响应中的 token（非 upload token，见 get_token_from_session）
+            _ = inner.get("token") or verify_data.get("token")
         except Exception:
             pass
         # 保存会话
@@ -990,9 +989,8 @@ def _finish_login(context, store: SessionStore, browser) -> dict:
     try:
         verify_data = verify_resp.json()
         inner = verify_data.get("result", verify_data)
-        full_token = inner.get("token") or verify_data.get("token")
-        if full_token and not full_token.startswith("***"):
-            _cache_token(full_token)
+        # 勿缓存 verify 响应中的 token（非 upload token，见 get_token_from_session）
+        _ = inner.get("token") or verify_data.get("token")
     except Exception:
         pass
 
