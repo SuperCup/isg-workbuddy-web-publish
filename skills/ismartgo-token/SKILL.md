@@ -15,8 +15,12 @@ get-token 调用
   │     ├── JSESSIONID 有效 → 直接用
   │     └── JSESSIONID 过期 → SSO cookie 自动续期签发新 JSESSIONID → 持久化
   │     → 调 upload-token API；脱敏则 PUT 重新生成完整 Token
-  └── SSO cookie 也过期 → 纯HTTP 登录（login-smart --method http，默认）
-        └── 失败可降级：半隐式浏览器(auto) / 手动浏览器(manual)
+  └── SSO cookie 也过期 → 分步纯HTTP登录(避免主对话长阻塞)
+        ├── login-smart --method http --username X --password Y
+        │     ├── 退出码 0(成功) → 拿到 Token
+        │     └── 退出码 2(NEED_CAPTCHA) → 提示用户提供验证码
+        │           └── login-captcha --code XXXX → 拿到 Token
+        └── 失败 → 降级 login-smart --method auto(半隐式浏览器) 或 login(手动浏览器)
 ```
 
 **关键改进（2026-07-20）：**
@@ -68,24 +72,44 @@ python3 scripts/token_manager.py clear
 - **用户自己设置**：用户提供 Token 值（如 6 位数字），专家回显确认后使用
 - 禁止专家擅自决定 Token 值而不经用户确认
 
-## 纯HTTP登录（login-smart --method http，默认推荐）
+# 分步纯HTTP登录（login-smart --method http，默认推荐）
 
-对应精明购 Agent SSO 鉴权操作手册（`backend/app/services/portal_auth.py`），直接用接口登录，**无需浏览器/Playwright**：
+对应精明购 Agent SSO 鉴权操作手册（`backend/app/services/portal_auth.py`），**无浏览器/Playwright，分两步避免主对话长阻塞**。
 
+**为什么分步**：旧方式脚本在验证码步骤同步阻塞 180s × 3 = 9 分钟，导致 WorkBuddy 主对话卡住、验证码过期。新方式：
+- 提交账号密码后脚本立即返回（`<3s`），主对话继续；
+- 用户提供验证码后调第二步命令（`~3s`），整个交互总耗时 `~6s`。
+
+**第一步：提交账号密码**
+```bash
+python3 scripts/token_manager.py login-smart --method http --username <账号> --password <密码>
+```
+- 退出码 0 + 输出 `TOKEN: ...` → 登录成功
+- 退出码 2 + `NEED_CAPTCHA: ...` → 进入第二步（脚本已保存中间状态到 `~/.workbuddy/ismartgo_pending_login.json`，有效期 10 分钟）
+
+**第二步：提交验证码（仅 need_captcha 时）**
+```bash
+python3 scripts/token_manager.py login-captcha --code <4位数字>
+```
+- 退出码 0 + `TOKEN: ...` → 成功
+- 退出码 2 + `NEED_CAPTCHA: ...` → 验证码错误(脚本已自动 resend 新码),请提供**新的** 4 位再试
+- 退出码 1 + `ERROR: ...` → 中间状态过期(10分钟),需重新第一步
+
+**底层流程**（第一步内）：
 1. `POST op.ismartgo.cn/portalsso/web/login/submit`（表单：`loginname`/`pwd`/`appkey`空/`authcode`空/`keeplogin=0`/`device`）
-2. 返回 `needcheck=true` → 日志输出 `[READY_FOR_CAPTCHA]` → **Agent 向用户索要验证码（邮箱/企微最新 4 位数字）→ 写入 `~/.workbuddy/ismartgo_captcha.txt`** → 脚本轮询读到后 `POST /portalsso/web/login/check2` 提交
-3. 验证码被拒 → 自动调 `resend` 重发取新码，最多 3 次
-4. 登录成功后 `GET /portalsso/oauth?p-appkey=aisites&p-redirect=<probe>` 跟随 302 建立应用会话
-5. probe API 二次验证 + 缓存 Token → 保存 Cookie 集合
+2. `needcheck=true` → **不阻塞**，保存中间状态（cookies+device）到 `ismartgo_pending_login.json` → 退出码 2 返回 NEED_CAPTCHA
+3. `needcheck=false` → 直接进入 OAuth + probe + 保存会话（exit 0）
 
 **device 信任机制（减少验证码）**：登录成功后自动持久化设备号（存 `~/.workbuddy/ismartgo_config.json`），下次登录自动带回 → **大幅降低验证码触发概率**。首次登录无 device 大概率需要验证码，属正常。
 
-**执行示例**：
+**预存凭据**（仅首次需要）：
 ```bash
-python3 scripts/token_manager.py login-smart --method http            # 用已保存凭据+信任设备
-python3 scripts/token_manager.py login-smart --method http --username <账号> --password <密码>
-python3 scripts/token_manager.py save-credentials -u <账号> -p <密码> # 先存凭据（600权限）
+python3 scripts/token_manager.py save-credentials -u <账号> -p <密码>    # 默认 --method http
 ```
+
+**注意事项**：
+- 账号密码仅作命令行参数传入，不落盘/不写日志；`save-credentials` 时存到 `ismartgo_config.json`（600 权限）
+- `login-smart --method http` 也支持 `--code <4位>`：传 code 时与 submit 一次性走完（适合 Agent 已知验证码时使用，避免分步）
 
 ## 半隐式登录（login-auto，浏览器兜底）
 
@@ -117,6 +141,7 @@ python3 scripts/token_manager.py save-credentials -u <账号> -p <密码> # 先�
 | `~/.workbuddy/ismartgo_session.json` | 完整 Cookie 集合（含 SSO cookie） | 600 |
 | `~/.workbuddy/ismartgo_token.json` | Token 缓存（7 天有效） | 600 |
 | `~/.workbuddy/ismartgo_config.json` | 登录偏好 + 凭据 + 信任设备号（device） | 600 |
+| `~/.workbuddy/ismartgo_pending_login.json` | 分步登录中间状态(cookies+device)，needcheck 时写入，login-captcha 后清除；TTL 10 分钟 | 600 |
 
 ## 依赖
 

@@ -47,6 +47,9 @@ CAPTCHA_FILE = HOME_DIR / "ismartgo_captcha.txt"   # 验证码轮询文件
 LOGIN_LOG_FILE = HOME_DIR / "ismartgo_login.log"   # 登录脚本实时日志
 CAPTCHA_WAIT_S = 180   # 等待用户/AI 写入验证码（用户需去邮箱/企微获取）
 LOGIN_FINAL_S = 90     # 提交验证码后等待回跳的超时
+# 分步登录中间状态（submit 通过但需验证码时保存，避免主对话长阻塞）
+PENDING_LOGIN_FILE = HOME_DIR / "ismartgo_pending_login.json"
+PENDING_LOGIN_TTL = 600  # 10 分钟（验证码通常 5-10 分钟有效；超时需重新 submit）
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -620,25 +623,145 @@ def _get_device() -> str:
     return _load_config().get("device", "") or ""
 
 
+def _save_pending_login(s, device: str, username: str):
+    """保存分步登录的中间状态（cookies + device + username），供 submit_captcha 续接。
+    设计目的：避免主对话在 needcheck 时长阻塞 180s × 3。"""
+    payload = {
+        "cookies": _session_cookies_to_list(s),
+        "device": device,
+        "username": username,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "expiresAt": int(time.time()) + PENDING_LOGIN_TTL,
+    }
+    save_json(PENDING_LOGIN_FILE, payload)
+
+
+def _load_pending_login() -> dict | None:
+    """读取待续接登录状态；过期或缺失返回 None（并清理过期文件）"""
+    data = load_json(PENDING_LOGIN_FILE)
+    if not data or not data.get("cookies"):
+        return None
+    if data.get("expiresAt", 0) < int(time.time()):
+        _clear_pending_login()
+        return None
+    return data
+
+
+def _clear_pending_login():
+    try:
+        PENDING_LOGIN_FILE.unlink()
+    except Exception:
+        pass
+
+
+def _complete_login(s, device: str) -> dict:
+    """OAuth 建立应用会话 + probe 验证 + 保存会话/设备/userinfo（共享给 http_login 与 submit_captcha）"""
+    try:
+        # OAuth 建立 aisites 应用会话
+        oauth_url = SSO_OAUTH_TMPL.format(redirect=quote(PROBE_URL, safe=""))
+        _log("OAuth 建立应用会话(p-appkey=aisites)...")
+        r3 = s.get(oauth_url, allow_redirects=False, timeout=30)
+        loc = r3.headers.get("location")
+        if loc:
+            s.get(loc, allow_redirects=True, timeout=30)
+        # probe 验证
+        r4 = s.get(PROBE_URL, allow_redirects=True, timeout=20)
+        if r4.status_code != 200:
+            return {"ok": False, "message": f"会话验证失败 (HTTP {r4.status_code})，可能 OAuth 未完成。"}
+        ctype = r4.headers.get("Content-Type", "")
+        text = r4.text.lstrip()
+        if "json" not in ctype and not text.startswith(("{", "[")):
+            return {"ok": False, "message": "会话验证返回了登录页（未真正登录成功）。"}
+        try:
+            verify_data = r4.json()
+            inner = verify_data.get("result", verify_data)
+            full_token = inner.get("token") or verify_data.get("token")
+            if full_token and not full_token.startswith("***"):
+                _cache_token(full_token)
+        except Exception:
+            pass
+        # 保存会话
+        cookies = _session_cookies_to_list(s)
+        session = SessionStore().save({"cookies": cookies, "baseUrl": BASE_URL})
+        if device:
+            _persist_device(device)
+        try:
+            cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            info = _fetch_and_save_user(cookie_header)
+            if not (info or {}).get("userid"):
+                _log("本地 cookie 未解析出 userid，改用 deliverysv getUserInfo 兜底...")
+                _fetch_user_via_deliverysv(s)
+        except Exception:
+            pass
+        _log("登录成功！会话已保存。")
+        return {"ok": True, "session": session, "message": "登录成功，会话已保存。有效期内可直接调用接口。"}
+    except Exception as e:
+        return {"ok": False, "message": f"完成登录步骤出错: {e}"}
+
+
+def submit_captcha(code: str) -> dict:
+    """续接待登录：读取 pending → POST check2(code) → 成功完成 OAuth+probe+保存。
+    验证码错：自动 resend 并保留 pending（请用户提供新码后再次调用）。
+    """
+    import requests as req
+    code = (code or "").strip()
+    if not re.fullmatch(r"\d{4}", code):
+        return {"ok": False, "need_captcha": True, "message": f"验证码格式错误: '{code}'（应为 4 位数字），请提供新的 4 位验证码"}
+
+    pending = _load_pending_login()
+    if not pending:
+        return {"ok": False, "message": "没有待续接的登录流程（请先执行 login-smart --method http --username <账号> --password <密码>）"}
+
+    s = req.Session()
+    s.headers.update(_sso_headers())
+    for c in pending["cookies"]:
+        s.cookies.set(c["name"], c["value"], domain=c.get("domain", ""), path=c.get("path", "/"))
+    device = pending.get("device", "")
+
+    _log("提交验证码(待续接)...")
+    r = s.post(SSO_CHECK2_URL, data={"validcode": code}, allow_redirects=False, timeout=30)
+    try:
+        body = r.json()
+    except Exception:
+        body = {}
+    if body.get("errcode") != 0:
+        _log(f"[CAPTCHA_ERROR] 验证码被拒: {body.get('errmsg') or body}，自动 resend...")
+        try:
+            s.post(SSO_RESEND_URL, data={}, allow_redirects=False, timeout=15)
+        except Exception:
+            pass
+        return {"ok": False, "need_captcha": True, "message": f"验证码错误，已自动重发新码，请提供新的 4 位数字"}
+    _log("验证码通过。")
+    _clear_pending_login()
+    return _complete_login(s, device)
+
+
 def http_login(
     username: str,
     password: str,
     captcha_file: Path = CAPTCHA_FILE,
     device: str = "",
+    code: str = "",
 ) -> dict:
     """
-    纯 HTTP SSO 登录（无浏览器）：
+    纯 HTTP SSO 登录（无浏览器）。
 
-    1. POST /portalsso/web/login/submit (loginname/pwd/device)
-    2. needcheck=true → 轮询验证码文件 → POST /portalsso/web/login/check2
-       (验证码被拒 → 调 resend 重发, 最多 3 次)
-    3. GET /portalsso/oauth?p-appkey=aisites&p-redirect=<probe> 跟随 302 建立应用会话
-    4. probe API 验证会话有效 + 缓存 Token
-    5. 保存 cookies + device(信任设备) + 用户信息
+    两种调用模式（分步优先，避免主对话长阻塞）：
+    1. **分步模式**（推荐）：仅传 username/password。submit 后若 needcheck=true，
+       立即保存中间状态并返回 need_captcha=True（不阻塞），主对话可继续。
+       用户提供验证码后再调用 submit_captcha(code) 完成登录。
+    2. **一次走完**（脚本/Agent 已收到验证码）：传 --code <验证码>。submit → check2(code)
+       → OAuth → probe → 保存。会话一气呵成。
 
-    返回: {"ok": True, "session": {...}, "message": "..."} 或 {"ok": False, "message": "..."}
+    返回:
+      {"ok": True, "session": ..., "message": ...}                            登录成功
+      {"ok": False, "need_captcha": True, "message": ...}                    需验证码（分步模式）
+      {"ok": False, "message": ...}                                          其它错误
     """
     import requests as req
+
+    code = (code or "").strip()
+    use_code_first = bool(re.fullmatch(r"\d{4}", code))
 
     # 清掉旧验证码文件，避免误用旧码
     if captcha_file.exists():
@@ -652,7 +775,7 @@ def http_login(
 
     try:
         # 1. 账号密码登录
-        _log(f"纯HTTP登录: POST {SSO_SUBMIT_URL} (device={'有:' + device if device else '无,首次登录可能需验证码'})")
+        _log(f"纯HTTP登录: POST submit (device={'有:' + device if device else '无,首次可能需验证码'})")
         r = s.post(
             SSO_SUBMIT_URL,
             data={
@@ -675,82 +798,34 @@ def http_login(
         result = body.get("result") or {}
         device = result.get("device") or device
 
-        # 2. 二次验证（needcheck=true）
+        # 2. 二次验证
         if result.get("needcheck"):
-            _log(f"[READY_FOR_CAPTCHA] 需要二次验证，4 位验证码已发送到邮箱/企微，等待写入: {captcha_file}")
-            for attempt in range(1, 4):
-                code = _wait_captcha_file(captcha_file, CAPTCHA_WAIT_S)
-                if not code:
-                    return {"ok": False, "message": f"等待验证码超时（{CAPTCHA_WAIT_S}s），请重新执行 login-smart --method http。"}
-                _log(f"提交验证码（第 {attempt} 次）...")
+            if use_code_first:
+                _log("已预传验证码,提交 check2...")
                 r2 = s.post(SSO_CHECK2_URL, data={"validcode": code}, allow_redirects=False, timeout=30)
                 try:
                     body2 = r2.json()
                 except Exception:
                     body2 = {}
-                if body2.get("errcode") == 0:
-                    _log("验证码通过。")
-                    break
-                # 验证码被拒 → 重发取新码
-                _log(f"[CAPTCHA_ERROR] 第 {attempt} 次验证码被拒，请求重发新码...")
-                try:
-                    s.post(SSO_RESEND_URL, data={}, allow_redirects=False, timeout=15)
-                except Exception:
-                    pass
-                if captcha_file.exists():
-                    try:
-                        captcha_file.unlink()
-                    except Exception:
-                        pass
+                if body2.get("errcode") != 0:
+                    _log(f"[CAPTCHA_ERROR] 预传验证码被拒: {body2.get('errmsg') or body2}")
+                    return {"ok": False, "need_captcha": True, "message": f"预传验证码错误（{body2.get('errmsg') or 'errcode=' + str(body2.get('errcode'))}），请提供新码后重试"}
+                _log("验证码通过。")
+                # 继续走 OAuth+probe+保存
             else:
-                return {"ok": False, "message": "验证码连续 3 次错误，请稍后重试。"}
+                # 未提供验证码 → 保存中间状态，立即返回（避免主对话长阻塞）
+                _save_pending_login(s, device, username)
+                _log(f"[NEED_CAPTCHA] 已保存中间登录状态（有效期 {PENDING_LOGIN_TTL//60} 分钟）;验证码已发送到邮箱/企微")
+                return {
+                    "ok": False,
+                    "need_captcha": True,
+                    "message": "需要二次验证,4 位验证码已发送到邮箱/企业微信。\n"
+                               "请将验证码回复给小包（无需写入文件），小包将自动调用 login-captcha 完成登录，"
+                               "避免会话等待验证码超时。",
+                }
 
-        # 3. OAuth 建立 aisites 应用会话
-        oauth_url = SSO_OAUTH_TMPL.format(redirect=quote(PROBE_URL, safe=""))
-        _log("OAuth 建立应用会话(p-appkey=aisites)...")
-        r3 = s.get(oauth_url, allow_redirects=False, timeout=30)
-        loc = r3.headers.get("location")
-        if loc:
-            s.get(loc, allow_redirects=True, timeout=30)
-
-        # 4. probe 验证会话 + 缓存 Token
-        r4 = s.get(PROBE_URL, allow_redirects=True, timeout=20)
-        if r4.status_code != 200:
-            return {"ok": False, "message": f"会话验证失败 (HTTP {r4.status_code})，可能 OAuth 未完成或应用会话未建立。"}
-        ctype = r4.headers.get("Content-Type", "")
-        text = r4.text.lstrip()
-        if "json" not in ctype and not text.startswith(("{", "[")):
-            return {"ok": False, "message": "会话验证返回了登录页（未真正登录成功）。"}
-        try:
-            verify_data = r4.json()
-            inner = verify_data.get("result", verify_data)
-            full_token = inner.get("token") or verify_data.get("token")
-            if full_token and not full_token.startswith("***"):
-                _cache_token(full_token)
-        except Exception:
-            pass
-
-        # 5. 保存会话
-        cookies = _session_cookies_to_list(s)
-        session = SessionStore().save({"cookies": cookies, "baseUrl": BASE_URL})
-
-        # 6. 持久化信任设备（下次免验证码）
-        if device:
-            _persist_device(device)
-
-        # 7. 用户信息（供知识采集器）
-        try:
-            cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
-            info = _fetch_and_save_user(cookie_header)
-            # 纯HTTP会话无 portalsv_sso_user cookie → userid 为空 → 走 deliverysv getUserInfo 兜底
-            if not (info or {}).get("userid"):
-                _log("本地 cookie 未解析出 userid，改用 deliverysv getUserInfo 兜底...")
-                _fetch_user_via_deliverysv(s)
-        except Exception:
-            pass
-
-        _log("登录成功！会话已保存。")
-        return {"ok": True, "session": session, "message": "纯HTTP登录成功，会话已保存。有效期内可直接调用接口，无需重复登录。"}
+        # 3-7. OAuth + probe + 保存会话（共享 _complete_login）
+        return _complete_login(s, device)
 
     except Exception as e:
         return {"ok": False, "message": f"登录过程出错: {e}"}
@@ -947,6 +1022,7 @@ def login_smart(
     password: str | None = None,
     captcha_file: Path = CAPTCHA_FILE,
     headed: bool = False,
+    code: str = "",
 ) -> dict:
     """
     智能登录：先判定本地会话；失效则按用户偏好的方式登录。
@@ -956,6 +1032,7 @@ def login_smart(
     - method=http/auto/manual：记录偏好后按该方式执行
     - http/auto 模式下：显式传入或已保存的凭据均可；仅凭据不存在时提示提供
     - http 模式会自动带信任设备(device)，有则免验证码
+    - http 模式下传 code=<4位> 时：与 submit 一次性走完（避免分步时验证码过期）
     """
     store = SessionStore()
 
@@ -996,7 +1073,7 @@ def login_smart(
 
     if method == "http":
         _log("已记录登录偏好：纯HTTP接口直登。")
-        result = http_login(username, password, captcha_file=captcha_file, device=_get_device())
+        result = http_login(username, password, captcha_file=captcha_file, device=_get_device(), code=code)
     else:  # auto：半隐式浏览器
         _log("已记录登录偏好：半隐式浏览器登录。")
         result = auto_login(username, password, captcha_file=captcha_file, headed=headed)
@@ -1410,10 +1487,21 @@ if __name__ == "__main__":
     parser_login_smart.add_argument("--username", help="SSO 账号（半隐式）")
     parser_login_smart.add_argument("--password", help="SSO 密码（半隐式）")
     parser_login_smart.add_argument(
+        "--code", default="",
+        help="4 位验证码(http 模式下传此参数可与 submit 一次性走完，避免分步时验证码过期)"
+    )
+    parser_login_smart.add_argument(
         "--captcha-file", default=str(CAPTCHA_FILE), help="验证码轮询文件"
     )
     parser_login_smart.add_argument(
         "--headed", action="store_true", help="显示浏览器窗口（默认 headless）"
+    )
+    parser_login_captcha = sub.add_parser(
+        "login-captcha",
+        help="分步登录第二步: 提交 4 位验证码续接登录（用于 login-smart 返回 need_captcha=True 时）",
+    )
+    parser_login_captcha.add_argument(
+        "--code", required=True, help="邮箱/企微收到的 4 位数字验证码"
     )
     parser_save_creds = sub.add_parser(
         "save-credentials", help="保存 SSO 凭据到本机（600 权限，不进专家包）"
@@ -1484,7 +1572,29 @@ if __name__ == "__main__":
             password=args.password,
             captcha_file=Path(args.captcha_file),
             headed=args.headed,
+            code=args.code,
         )
+        if result.get("need_captcha"):
+            # 分步模式：need_captcha=True → 不退出,让上层继续(主对话不卡)
+            # 打印到 stderr 让 Agent 易于识别;非零退出以触发脚本结果识别
+            print(f"NEED_CAPTCHA: {result['message']}", file=sys.stderr)
+            sys.exit(2)
+        if result["ok"]:
+            token = get_token_from_session()
+            if token:
+                print(f"TOKEN: {token}")
+            else:
+                print("登录成功但 Token 获取失败")
+        else:
+            print(f"ERROR: {result['message']}", file=sys.stderr)
+            sys.exit(1)
+
+    elif args.cmd == "login-captcha":
+        result = submit_captcha(args.code)
+        if result.get("need_captcha"):
+            # 验证码错并已 resend → 需要新码,同样不阻塞主对话
+            print(f"NEED_CAPTCHA: {result['message']}", file=sys.stderr)
+            sys.exit(2)
         if result["ok"]:
             token = get_token_from_session()
             if token:

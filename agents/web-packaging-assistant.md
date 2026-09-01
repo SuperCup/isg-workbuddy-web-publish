@@ -453,10 +453,13 @@ wx.updateTimelineShareData({
                                     ↓ 无效
                               检查缓存 Session → 有效? → 刷新 Token
                                     ↓ 无效
-                              检查登录方式偏好 → 有偏好? → 按偏好登录（http 纯HTTP/auto 半隐式/manual 手动）
-                                    ↓ 无偏好
-                              默认纯HTTP登录（--method http）→ 执行登录 → 获取 Token
-                              （被风控/失败时降级 auto 半隐式 或 manual 手动浏览器）
+                              引导用户提供账号密码 → login-smart --method http --username X --password Y
+                                                          ↓ 退出码 2 (NEED_CAPTCHA)
+                              引导用户提供验证码 → login-captcha --code XXXX
+                                                          ↓ 退出码 2 (验证码错,已 resend)
+                                                        → 提供新验证码再试
+                                                          ↓ 其它错误
+                                                        → 降级 auto 半隐式 或 manual 手动浏览器
 ```
 
 ### 凭据配置（仅首次需要）
@@ -471,18 +474,48 @@ python3 skills/ismartgo-token/scripts/token_manager.py save-credentials -u "账�
 
 **⚠️ 安全红线：账号密码等登录信息只存 WorkBuddy 本机 `~/.workbuddy/` 下，严禁写入专家包目录（agents/、skills/ 等），避免分享给他人时泄露。** 脚本回显账号时一律脱敏（首字符+***+尾字符），密码永不回显、不写日志。
 
-### 登录方式（三种，兼容，默认纯HTTP）
+### 登录引导（默认纯HTTP，分步引导，避免长阻塞）
 
-| 方式 | 命令 | 用户参与 |
-|------|------|---------|
-| 纯HTTP（默认推荐） | `token_manager.py login-smart --method http` | 无浏览器接口直登；首次需邮箱/企微 4 位验证码，之后**信任设备(device)免验证码** |
-| 半隐式（浏览器） | `token_manager.py login-smart --method auto` | 自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码 |
-| 手动浏览器（兜底） | `token_manager.py login` | 用户本人输入账号密码+验证码 |
+**会话失效需登录时，**直接引导用户提供账号密码**，不要再展示"纯HTTP / 半隐式浏览器 / 手动浏览器"等选项（避免选择疲劳）。纯HTTP 是唯一默认路径；其他方式仅在脚本失败时降级使用。
 
-- 会话失效且**未记录偏好**时，默认走纯HTTP（`--method http`）；被风控拦截或失败时降级 `auto` 半隐式，再不行 `manual` 手动浏览器
-- 已记录偏好后，**下次失效直接按偏好执行**；纯HTTP 方式下已保存信任设备则**无需验证码**，其余方式只需用户提供验证码（凭据已存本机）
-- 验证码为 4 位数字（发邮箱+企业微信），由 Agent 写入 `~/.workbuddy/ismartgo_captcha.txt` 供脚本轮询
-- 查看偏好：`token_manager.py pref`；清除全部（含凭据）：`token_manager.py clear`
+#### 第一步：索取账号密码
+```
+"小包"：当前未登录,请回复账号和密码开始纯HTTP登录（首次登录或新设备需邮箱/企微4位验证码）。
+```
+
+用户回复账号密码 → 专家执行：
+```bash
+python3 skills/ismartgo-token/scripts/token_manager.py login-smart --method http --username <账号> --password <密码>
+```
+
+#### 第二步：分支处理
+- **脚本输出 `TOKEN: ...`** → 直接成功，进入下一步
+- **脚本退出码 2 且输出 `NEED_CAPTCHA: ...`** → 进入第三步（验证码步骤）
+- **脚本输出 `ERROR: ...`** → 告知用户具体错误（如密码错误/账号锁定），请用户重发账号密码或联系管理员
+
+#### 第三步：验证码（仅首次登录或新设备触发）
+```
+"小包"：验证码已发送到邮箱/企业微信,请将 4 位数字回复给我。
+忘记密码？访问 https://op.ismartgo.cn/portalsso/h5/login.html?p-appkey=pms 点"忘记密码"重新获取。
+如有异常请联系产品赵露明重置密码。
+```
+用户回复 4 位数字 → 专家执行：
+```bash
+python3 skills/ismartgo-token/scripts/token_manager.py login-captcha --code <4位数字>
+```
+- **输出 `TOKEN: ...`** → 成功
+- **退出码 2 且输出 `NEED_CAPTCHA: ...`** → 验证码错误(脚本已自动 resend 新码),请用户提供**新**的 4 位数字再试
+- **输出 `ERROR: ...`** → 告知用户,排查(可能 pending 文件过期,需重新第一步)
+
+#### 为什么分步（重要）
+- 旧方式：`login-smart` 在验证码步骤**同步阻塞 180s × 3 = 9 分钟**,导致 WorkBuddy 主对话卡住、验证码过期
+- 新方式：脚本立即返回（`<3s`），主对话继续；用户提供验证码后再调 `login-captcha`（`~3s`），整个登录交互总耗时 ~6s
+- 验证码用前用户已就位,不会过期
+
+#### 降级路径
+纯HTTP 失败时（如 submit 接口被风控拦截）→ 改用半隐式浏览器：`login-smart --method auto`；再不行手动登录 `login`（弹出浏览器）。
+
+- 查看偏好：`token_manager.py pref`；清除全部（含凭据+设备+pending）：`token_manager.py clear`
 
 ### 获取 Token（每次上传前自动执行）
 
@@ -592,15 +625,16 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
      11. workspace-k（包: pkg3）
      ```
    - 用户回复编号或名称后，确认选择并进入 Step 4（**不得**只展示前 4 个遗漏其余）
-3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **先判定登录方式偏好，再执行登录**：
-   - 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-smart`
-   - 脚本会自动判定：本地会话有效 → 直接继续；已记录登录方式偏好 → 按偏好执行；**从未选择过 → 默认纯HTTP登录**：
-     - **方式 1 纯HTTP（默认）**：`login-smart --method http`（无浏览器接口直登；首次需邮箱/企微 4 位验证码，之后信任设备免验证码）
-     - **方式 2 半隐式**：`login-smart --method auto`（自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码）
-     - **方式 3 手动**：`login-smart --method manual`（弹出浏览器窗口，用户本人输入账号密码+验证码）
-   - 纯HTTP 被风控拦截或失败时 → 降级 `auto` 半隐式，再不行 `manual` 手动浏览器
-   - 用户选择后偏好自动记录到 `~/.workbuddy/ismartgo_config.json`（WorkBuddy 本地，**绝不放专家包内**），**下次会话失效时直接按偏好执行，仅需用户提供验证码（纯HTTP+信任设备则免）**
-   - 登录成功后**重新执行 list-spaces**，此时应能拿到列表并展示
+3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **进入分步登录引导**（详见上文「登录引导」）：
+   - **引导用户提供账号密码**："请回复账号和密码开始纯HTTP登录"
+   - 用户回复 → 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-smart --method http --username <账号> --password <密码>`
+     - 退出码 0 且有 TOKEN → 登录成功，重新执行 list-spaces
+     - **退出码 2 + `NEED_CAPTCHA`** → 进入验证码步骤：
+       - 告知用户"验证码已发送到邮箱/企业微信,请提供 4 位数字。忘记密码访问 https://op.ismartgo.cn/portalsso/h5/login.html?p-appkey=pms 点忘记密码,异常联系产品赵露明"
+       - 用户回复验证码 → 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-captcha --code <4位>`
+     - 退出码 1 + `ERROR:...` → 告知用户具体错误(如密码错误),请重新提供
+   - 纯HTTP 失败(非验证码问题)→ 降级 `login-smart --method auto`(半隐式浏览器);再不行 `login`(手动浏览器)
+   - 登录成功后**重新执行 list-spaces**,此时应能拿到列表并展示
 4. **如果没有可用 workspace** → 协助用户完成 workspace 创建：
    - 引导用户在管理后台 `https://agent.ismartgo.com/admin` 创建新 workspace
    - 或按平台规则通过 API/后台创建，创建完成后再继续
@@ -792,7 +826,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py set-access-type \
 | 页面空白/资源404 | 根路径 `/assets/...` | 改为相对路径，检查 base/publicPath |
 | 路由不匹配 | SPA 根路径路由 | Hash 路由或配置 base |
 | Token 获取失败（未配置） | 无凭据 | `save-credentials` |
-| Token 获取失败（二次验证） | 验证码 | 提供邮箱/企微 4 位验证码（纯HTTP 或半隐式均可）；被风控时改手动浏览器完成一次登录固化信任设备 |
+| Token 获取失败（need_captcha） | 验证码 | 引导用户提供 4 位验证码 → `login-captcha --code XXXX`；错码脚本自动 resend,提供新码再试 |
 | ZIP 结构不对 | 打进了外层目录 | 进入产物目录再 zip |
 
 ---
