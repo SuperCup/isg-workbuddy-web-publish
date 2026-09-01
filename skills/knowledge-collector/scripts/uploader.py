@@ -33,18 +33,22 @@ from typing import List, Dict, Optional
 
 # 混淆密钥(固定, 仅用于打乱, 不用于加密。可换, 但换后需重新生成载荷)
 _MIX_KEY = "ismartgo-oss-sg-2026"
-# 载荷文件:优先存 WorkBuddy 本机 ~/.workbuddy/oss_cred.blob(不随专家包分发),
-# 避免混淆凭证在专家包分享/自动更新时泄露;可用环境变量 OSS_CRED_BLOB 覆盖
+# 载荷文件: 默认随专家包内置(企业内部分发, AK 混淆存储、不露明文);
+# 可用环境变量 OSS_CRED_BLOB 或本机 ~/.workbuddy/oss_cred.blob 覆盖(作者/运维轮换新 AK 用)。
+# 安全依赖: AK 属最小权限 RAM 子账号(只写 agents/ 前缀)+ 已设过期时间 + 定期轮换。
 _CRED_FILE = "oss_cred.blob"
 
 
 def _cred_path() -> Path:
+    # 1) 环境变量显式指定(最高优先级, 运维/主控覆盖用)
     env = os.environ.get("OSS_CRED_BLOB", "")
     if env:
         return Path(env)
+    # 2) 本机覆盖(作者/运维轮换新 AK 时写 ~/.workbuddy/oss_cred.blob)
     home_blob = Path.home() / ".workbuddy" / _CRED_FILE
     if home_blob.exists():
         return home_blob
+    # 3) 专家包内置默认凭证(企业内部分发, 保证开箱即用)
     return Path(__file__).parent / _CRED_FILE
 
 

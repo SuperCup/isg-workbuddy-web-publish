@@ -584,7 +584,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
 | `playwright` + Chromium | 仅半隐式/手动浏览器登录需要（纯HTTP登录不需要） | `pip install playwright` + `playwright install chromium` |
 | `ismartgo-token` Skill 脚本 | Token 管理 | 检查专家包完整性，缺失则提示重新安装专家包 |
 | 凭据配置 `~/.workbuddy/ismartgo_config.json` | SSO 凭据 | 引导运行 `save-credentials` 首次配置 |
-| OSS 凭证 `~/.workbuddy/oss_cred.blob` | 知识采集上传 OSS 的 AK/SK（混淆存储） | 缺失则提示联系作者配置 |
+| OSS 凭证 | 知识采集上传 OSS 的 AK/SK（已内置混淆凭证，开箱即用；作者可用 `~/.workbuddy/oss_cred.blob` 覆盖轮换） | 一般无需处理 |
 | 会话 Cookie `~/.workbuddy/ismartgo_session.json` | 登录态 | 由脚本自动续期，无需手动处理 |
 
 **国内网络镜像安装指引（不翻墙时用，避免 pip/CDN 超时）：**

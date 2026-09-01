@@ -106,7 +106,7 @@ agents/<member_id>/
 
 - 本地产物:`~/.workbuddy/knowledge-collect/`(专家包更新不覆盖)
 - 登录用户信息:`~/.workbuddy/ismartgo_user.json`(登录成功后自动写入)
-- OSS 凭证:`~/.workbuddy/oss_cred.blob`(混淆,不随包)
+- OSS 凭证:专家包**内置默认凭证** `scripts/oss_cred.blob`(混淆存储、不露明文,企业内部分发开箱即用);可用 `~/.workbuddy/oss_cred.blob` 或环境变量 `OSS_CRED_BLOB` 覆盖(作者/运维轮换新 AK 用)
 
 ## 依赖
 
