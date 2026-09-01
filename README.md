@@ -57,6 +57,9 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.5.2`：新增 `create-workspace` 命令——创建 workspace(自动携带 `x-admin-token: sso` 头+登录Cookie+JSON body),成功输出 `WORKSPACE_CREATED`/重复编码等业务错误走 ERROR 分支;已实测通过;Step 3 无可用 workspace 时改走脚本创建(原引导管理后台)
+- `1.5.1`：修复 upload token 误缓存(invalid upload token)——登录时不再把 verify 响应 token 当上传 token,以 `/api/web/me/upload-token` 接口 GET/PUT 为准;方案B指令热加载(update 后输出 INSTRUCTION_UPDATED 变更摘要,当前会话可按最新指令继续执行)
+- `1.5.0`：删除微信分享卡片配置相关内容(4 大章节+Step 5a+FAQ 等);访问类型确认改为**构建前必做**(Step 5c);保留 `?v=` 通用缓存规避
 - `1.4.8`：分支策略调整——**删除 pre 预发布分支,仅保留 main(生产)/test(开发)两分支**;体验通道从 `--channel pre` 改为 `--channel test`(白名单用户直接从 test 开发分支获取体验版);发布流程去除 pre 同步步骤;OSS 主AK 内置专家包(混淆存储,企业内部分发开箱即用,凭证优先级:环境变量 > ~/.workbuddy/oss_cred.blob > 包内置)
 - `1.4.6`：访问类型询问时机修复——①从上传后(Step 11)提前到**分享配置后立即询问**(新增 Step 5d,修复"分享配置后无访问类型提醒") ②Token 访问新增来源选择:**自动生成(专家生成并经用户确认)/ 用户自己设置(用户提供)**,禁止专家擅自决定
 - `1.4.5`：①采集提醒频率优化——拒绝采集后**每日提醒一次**(原仅首次),直至成功上传刷新状态;成功上传后 7 天间隔 ②上传后**设置访问类型**(公开PUBLIC默认/Token访问TOKEN/禁用DISABLED),新增 `set-access-type` 命令(实测接口仅支持 PUT)
