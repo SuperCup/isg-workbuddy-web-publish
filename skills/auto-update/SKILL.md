@@ -5,10 +5,10 @@
 ## 硬性规则(写死,不可违反)
 
 - **作者 userId**:`e266ae24-3f86-4af8-9ca6-b9218cd6845f`(作者本人不触发更新,本地即源码仓库)
-- **默认分支锁定**:非作者用户**默认仅可获取生产环境(main)**,严禁切换 test/pre
+- **默认分支锁定**:非作者用户**默认仅可获取生产环境(main)**,严禁切换其他分支
 - 更新来源固定为 https://github.com/SuperCup/isg-workbuddy-web-publish 的 main 分支
-- **体验通道例外**:仅当用户 userId 在 `preview_member_ids` 白名单(仅读取专家包根 `config.json` 的 `preview_member_ids`,作者通过发布控制;**不读环境变量**,防用户自设绕过)时,可使用 `--channel pre` 从预发布分支获取最新体验版;白名单外一律拒绝
-- **非白名单用户自动切回 main**:请求 `--channel pre` 被拒绝(体验通道未授权)时,专家**立即默认切回 main(生产)分支**继续服务——用 `check`(不带 `--channel`)确认 main 通道正常,继续后续流程,不得中断服务、不得反复重试 `--channel pre`
+- **体验通道例外**:仅当用户 userId 在 `preview_member_ids` 白名单(仅读取专家包根 `config.json` 的 `preview_member_ids`,作者通过发布控制;**不读环境变量**,防用户自设绕过)时,可使用 `--channel test` 从 test 开发分支获取最新体验版;白名单外一律拒绝
+- **非白名单用户自动切回 main**:请求 `--channel test` 被拒绝(体验通道未授权)时,专家**立即默认切回 main(生产)分支**继续服务——用 `check`(不带 `--channel`)确认 main 通道正常,继续后续流程,不得中断服务、不得反复重试 `--channel test`
 
 ## 使用方式
 
@@ -19,9 +19,9 @@ python3 scripts/auto_update.py check
 # 检查并执行更新(自动下载解压覆盖本地专家包)
 python3 scripts/auto_update.py update
 
-# 体验通道(仅白名单用户, 从 pre 预发布分支获取最新体验版)
-python3 scripts/auto_update.py check  --channel pre
-python3 scripts/auto_update.py update --channel pre
+# 体验通道(仅白名单用户, 从 test 开发分支获取最新体验版)
+python3 scripts/auto_update.py check  --channel test
+python3 scripts/auto_update.py update --channel test
 ```
 
 ## 输出状态码

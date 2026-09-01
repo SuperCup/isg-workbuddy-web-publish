@@ -44,7 +44,7 @@ from pathlib import Path
 # ─── 写死的规则 ──────────────────────────────────────────
 AUTHOR_USER_ID = "e266ae24-3f86-4af8-9ca6-b9218cd6845f"  # 作者 WorkBuddy userId
 DEFAULT_BRANCH = "main"  # 非作者默认仅可获取生产环境
-PREVIEW_BRANCH = "pre"   # 体验通道分支(预发布/体验版)
+PREVIEW_BRANCH = "test"  # 体验通道分支(白名单用户从 test 开发分支获取体验版)
 REPO = "SuperCup/isg-workbuddy-web-publish"
 
 # 本地版本记录文件名(放在专家包根目录,随包分发/覆盖)
@@ -150,7 +150,7 @@ def get_local_version() -> dict:
 def _write_local_branch(branch: str) -> None:
     """更新成功后, 将实际来源分支写回本地 .update-version.json 的 branch 字段。
     包内版本文件的 branch 可能是作者发布时写死的 main, 不代表用户实际更新通道;
-    此函数确保本地记录反映真实分支(main/pre), 避免"显示分支与实际不符"。
+    此函数确保本地记录反映真实分支(main/test), 避免"显示分支与实际不符"。
     只改 branch, version 保持 apply_update 覆盖后的包内版本。"""
     vf = get_expert_root() / VERSION_FILE
     data = {}
@@ -239,16 +239,16 @@ def apply_update(src_dir: Path) -> int:
 
 def _resolve_channel(uid: str) -> str:
     """解析更新通道: 返回 (branch) 或抛出 RuntimeError(无权限)。
-    默认 main(生产); --channel pre 仅体验白名单用户可用。"""
+    默认 main(生产); --channel test 仅体验白名单用户可用。"""
     channel = "main"
     for i, a in enumerate(sys.argv[1:]):
         if a in ("--channel", "-c") and i + 2 < len(sys.argv):
             channel = sys.argv[i + 2].lower()
         elif a.startswith("--channel="):
             channel = a.split("=", 1)[1].lower()
-    if channel not in ("main", "pre"):
-        raise RuntimeError(f"非法通道: {channel}(仅支持 main/pre)")
-    if channel == "pre":
+    if channel not in ("main", "test"):
+        raise RuntimeError(f"非法通道: {channel}(仅支持 main/test)")
+    if channel == "test":
         if str(uid) in _preview_member_ids():
             return PREVIEW_BRANCH
         raise RuntimeError("体验通道未授权: 当前用户不在预览白名单(preview_member_ids), 仅可获取生产环境 main")
@@ -340,5 +340,5 @@ if __name__ == "__main__":
         else:
             sys.exit(cmd_update())
     else:
-        log("用法: python3 auto_update.py [check|update] [--channel main|pre]")
+        log("用法: python3 auto_update.py [check|update] [--channel main|test]")
         sys.exit(2)

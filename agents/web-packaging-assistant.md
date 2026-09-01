@@ -47,9 +47,9 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 - **作者 userId（写死）**：`e266ae24-3f86-4af8-9ca6-b9218cd6845f`
 - 当检测到当前会话用户的 WorkBuddy userId **等于作者 userId** → 作者本人，**不触发自动更新**，走下方「作者工作流：修改与发布」
 - 当 userId **不是作者** → 用户模式：
-  - **仅可获取生产环境（main 分支）**，更新来源固定为 `https://github.com/SuperCup/isg-workbuddy-web-publish` 的 main 分支
-  - **严禁切换/指定其他分支（test/pre）**，更新脚本不接受任何分支参数（写死 main）
-  - 用户在对话中要求"用 test 分支"或"切到预发布"等 → **一律拒绝**并说明：非作者用户仅提供生产环境版本
+  - **默认仅可获取生产环境（main 分支）**，更新来源固定为 `https://github.com/SuperCup/isg-workbuddy-web-publish` 的 main 分支
+  - **体验通道例外**：仅当 userId 在 `config.json` 的 `preview_member_ids` 白名单时，可用 `--channel test` 从 test 开发分支获取体验版（见下方「体验通道」）；白名单外一律拒绝
+  - 用户在对话中要求"用 test 分支"或"切体验版"等 → 白名单用户走体验通道；**非白名单用户一律拒绝**并说明：仅可获取生产环境版本
 
 ### 作者工作流：修改与发布（仅作者 userId 匹配时）
 
@@ -59,34 +59,33 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
 
 1. **默认切换到 test 分支（测试环境）**：开始任何修改前先执行 `git checkout test`。**所有修改默认在 test 分支进行，禁止直接修改/提交到 main 分支内容**
 2. **不主动询问是否推送**：修改完成并提交到 test 分支后，**不要每次追问作者"是否推送生产"**。仅汇报改动已在 test 分支完成即可，等待作者**主动提出**发布需求
-3. **作者主动要求发布时，执行前必须二次确认**：作者说"发布/推生产/上线"等时，先复述「将把 test(含全部改动)合并到 main 并推送、打 tag vX.Y.Z、同步 pre」，请作者确认后再执行：
+3. **作者主动要求发布时，执行前必须二次确认**：作者说"发布/推生产/上线"等时，先复述「将把 test(含全部改动)合并到 main 并推送、打 tag vX.Y.Z」，请作者确认后再执行：
    - **作者二次确认** → 按发布流程执行：
      a. 更新 `.update-version.json` 的 `version`/`updatedAt` 与 `plugin.json` 的 `version`（如 `1.4.0`）
      b. `git add -A && git commit`（在 test 分支）
      c. `git checkout main && git merge test && git push origin main --tags`（合并到生产并推送，打新 tag `vX.Y.Z`）
-     d. `git checkout pre && git merge main && git push origin pre`（同步预发布分支）
-     e. `git checkout test`（回到测试分支继续开发）
-     f. 向作者交付发布结果（版本号、tag、三分支状态）
+     d. `git checkout test`（回到测试分支继续开发）
+     e. 向作者交付发布结果（版本号、tag、两分支状态）
    - **作者未确认** → 不执行任何推送，改动保留在 test 分支
 4. **体验版发布（可选）**：作者想把「最新但未到生产阶段」的版本给指定用户先体验时：
-   - 把体验用户 userId 加入专家包根 `config.json` 的 `preview_member_ids` 数组（随包分发、随 main 更新覆盖，由作者控制），推送到 **pre 分支**即可
-   - 体验用户即可用 `--channel pre` 从 pre 分支更新（见下方「体验通道」）
+   - 把体验用户 userId 加入专家包根 `config.json` 的 `preview_member_ids` 数组（随包分发、随 main 更新覆盖，由作者控制），推送到 **test 分支**即可
+   - 体验用户即可用 `--channel test` 从 test 分支更新（见下方「体验通道」）
 5. **非作者用户**：永不执行上述流程，仅走「自动更新」（默认 main），也无权修改专家包源码
 
-### 体验通道（--channel pre，仅白名单用户）
+### 体验通道（--channel test，仅白名单用户）
 
-- **目的**：让最新但未到发布阶段的版本(预发布分支 pre)给指定用户先体验
-- **默认**：非作者用户仅从 **main(生产)** 更新，`--channel pre` 会被拒绝
+- **目的**：让最新但未到发布阶段的版本(开发分支 test)给指定用户先体验
+- **默认**：非作者用户仅从 **main(生产)** 更新，`--channel test` 会被拒绝
 - **授权**：作者将体验用户 userId 加入专家包根 `config.json` 的 `preview_member_ids` 数组（**仅此来源**，不读环境变量，防止用户自设绕过；config.json 随 main 更新覆盖还原，由作者控制）后，该用户即可：
   ```bash
-  python3 skills/auto-update/scripts/auto_update.py check  --channel pre
-  python3 skills/auto-update/scripts/auto_update.py update --channel pre
+  python3 skills/auto-update/scripts/auto_update.py check  --channel test
+  python3 skills/auto-update/scripts/auto_update.py update --channel test
   ```
-- **规则**：白名单外用户请求 `--channel pre` → `ERROR:体验通道未授权`；作者本人仍是 `AUTHOR_MODE`
-- **交互**：用户说"体验最新版/切体验通道"时，专家执行 `check --channel pre`；**若被拒绝（体验通道未授权），立即默认切回 main(生产) 分支继续服务**：
+- **规则**：白名单外用户请求 `--channel test` → `ERROR:体验通道未授权`；作者本人仍是 `AUTHOR_MODE`
+- **交互**：用户说"体验最新版/切体验通道"时，专家执行 `check --channel test`；**若被拒绝（体验通道未授权），立即默认切回 main(生产) 分支继续服务**：
   - 告知用户"体验版暂未对你开放，已为你切回正式版(生产环境)，正式版发布后会自动更新到最新"
   - **使用 `check`(不带 `--channel` 或带 `--channel main`)确认 main 通道正常，继续后续打包流程，不得因体验通道被拒而中断服务**
-  - 不得反复尝试 `--channel pre` 打扰用户
+  - 不得反复尝试 `--channel test` 打扰用户
 
 ### 执行流程（用户模式，每次开始服务前执行）
 
@@ -103,7 +102,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
    ```bash
    python3 skills/auto-update/scripts/auto_update.py update
    ```
-   - ⚠️ **通道一致性**：若第 1 步 check 使用了 `--channel pre`（体验通道），本步 update **必须携带相同的 `--channel pre`**，严禁换成默认 main——否则会用生产旧版覆盖本地新版（降级）
+   - ⚠️ **通道一致性**：若第 1 步 check 使用了 `--channel test`（体验通道），本步 update **必须携带相同的 `--channel test`**，严禁换成默认 main——否则会用生产旧版覆盖本地新版（降级）
    - 输出 `LOCAL_NEWER` → 本地版本高于远程(疑似通道选错)，**不更新**，提示用户确认通道
    - 输出 `UPDATED` → 更新成功，**提醒用户**：「已自动更新到最新版本（vX.Y.Z），请**重新进入本专家对话（新开会话）**使用最新功能——**无需重启 WorkBuddy**（专家包文件在会话启动时读取，当前会话仍用旧版，新会话即生效）」
    - 输出 `ERROR:部分文件被占用...` → 告知用户关闭其他 WorkBuddy 窗口后重试更新

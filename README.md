@@ -25,7 +25,7 @@ Agent 型（单个 AI 专家）
 
 1. 修改代码后,更新专家包根目录 `.update-version.json` 的 `version`（如 `1.4.0`）与 `updatedAt`
 2. 同步更新 `plugin.json` 的 `version`
-3. 提交推送到 `main`（生产）分支,可选同步 `pre`/`test`
+3. 提交推送到 `main`（生产）分支,可选同步 `test`（开发/体验分支）
 4. 打新 tag：`git tag v1.4.0 && git push origin main --tags`
 
 ## 使用示例
@@ -58,6 +58,7 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.4.8`：分支策略调整——**删除 pre 预发布分支,仅保留 main(生产)/test(开发)两分支**;体验通道从 `--channel pre` 改为 `--channel test`(白名单用户直接从 test 开发分支获取体验版);发布流程去除 pre 同步步骤;OSS 主AK 内置专家包(混淆存储,企业内部分发开箱即用,凭证优先级:环境变量 > ~/.workbuddy/oss_cred.blob > 包内置)
 - `1.4.6`：访问类型询问时机修复——①从上传后(Step 11)提前到**分享配置后立即询问**(新增 Step 5d,修复"分享配置后无访问类型提醒") ②Token 访问新增来源选择:**自动生成(专家生成并经用户确认)/ 用户自己设置(用户提供)**,禁止专家擅自决定
 - `1.4.5`：①采集提醒频率优化——拒绝采集后**每日提醒一次**(原仅首次),直至成功上传刷新状态;成功上传后 7 天间隔 ②上传后**设置访问类型**(公开PUBLIC默认/Token访问TOKEN/禁用DISABLED),新增 `set-access-type` 命令(实测接口仅支持 PUT)
 - `1.4.4`：采集流程修复——①打包流程末尾新增强制 Step 12 知识采集提醒(trigger,不可跳过,修复"上传后无采集通知") ②范围列表默认 `--time-range all` 罗列全部空间(修复"只列近一月") ③展示形式固化「交互式详情卡片」(时间筛选/搜索/多选/复制编号,修复"非卡片形式")
