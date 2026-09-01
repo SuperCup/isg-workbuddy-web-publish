@@ -312,7 +312,13 @@ def get_sts_token(member_id: str) -> Dict:
 # ============================================================
 def _get_auth_bucket(member_id: str):
     """返回 (oss2.Bucket, cred_dict)"""
-    import oss2
+    try:
+        import oss2
+    except ImportError:
+        raise RuntimeError(
+            "缺少 OSS 上传依赖 oss2,请先执行: pip install oss2 "
+            "(国内网络可加镜像: pip install oss2 -i https://pypi.tuna.tsinghua.edu.cn/simple)"
+        )
     cfg = _cfg()
     mode = cfg.get("upload_mode", "direct")
 

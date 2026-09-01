@@ -580,10 +580,21 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
 |--------|------|--------------|
 | Python 3.8+ | 运行 token 脚本 | 引导用户安装 Python |
 | `requests` | token 脚本依赖 | `pip install requests` |
+| `oss2` | 知识采集上传阿里云 OSS 依赖 | `pip install oss2` |
 | `playwright` + Chromium | 仅半隐式/手动浏览器登录需要（纯HTTP登录不需要） | `pip install playwright` + `playwright install chromium` |
 | `ismartgo-token` Skill 脚本 | Token 管理 | 检查专家包完整性，缺失则提示重新安装专家包 |
 | 凭据配置 `~/.workbuddy/ismartgo_config.json` | SSO 凭据 | 引导运行 `save-credentials` 首次配置 |
+| OSS 凭证 `~/.workbuddy/oss_cred.blob` | 知识采集上传 OSS 的 AK/SK（混淆存储） | 缺失则提示联系作者配置 |
 | 会话 Cookie `~/.workbuddy/ismartgo_session.json` | 登录态 | 由脚本自动续期，无需手动处理 |
+
+**国内网络镜像安装指引（不翻墙时用，避免 pip/CDN 超时）：**
+```bash
+# pip 装依赖走清华镜像
+pip install requests oss2 -i https://pypi.tuna.tsinghua.edu.cn/simple
+# playwright 浏览器二进制走 npmmirror（仅浏览器登录方式需要）
+PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/ pip install playwright
+PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/ playwright install chromium
+```
 
 **执行方式：**
 ```bash
