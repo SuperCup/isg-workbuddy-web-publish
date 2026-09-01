@@ -14,6 +14,14 @@
 - **敏感过滤**:文本内容含敏感词的**原始文件不打包上传**(防止 token/密钥/系统提示等泄露),仅知识卡片可上传
 - **凭证安全**:OSS AK/SK 混淆存 `~/.workbuddy/oss_cred.blob`(不随专家包分发,不写明文)
 
+## 执行模型与可靠性(重要,回答"会不会被中断")
+
+- **上传是同步执行,非异步、非后台守护**:`collector.py` 由专家在会话内通过 Bash **同步启动前台子进程**,`oss2.put_object_from_file` 为同步阻塞上传,全程等待返回后才输出结果
+- **会话进程依赖**:上传执行期间若用户**关闭 WorkBuddy 对应任务框/会话进程** → 子进程被终止 → 上传中断(已传对象保留在 OSS,未传对象丢失)
+- **安全侧保证(已闭环)**:上传中断时 `mark_done` 不会执行 → 7 天提醒计时**不刷新** → 下次打包流程末尾仍会提醒采集(符合「OSS 上传成功才刷新计时」硬性条件,不会因中断而误以为已采集)
+- **幂等重试**:重新跑 collect 会按同名 key 覆盖上传,无需清理;本地产物保留在 `~/.workbuddy/knowledge-collect/<member>/`(卡片 md / 原始包 zip),可复用
+- **专家侧要求**:进入上传步骤(collect 第 4 步)前,必须告知用户「正在上传知识卡片到 OSS,请保持本会话打开,上传完成后会提示」;若用户反馈上次上传被中断,直接重新跑 collect(已落盘卡片可复用 `--cards-json` 重传)
+
 ## 交互要求(专家侧)
 
 1. **同意/不同意必须用 WorkBuddy 选择组件**(弹窗):展示隐私说明后,给出「同意」「不同意」两个选项由用户点击选择,不得用纯文本让用户输入
@@ -56,7 +64,7 @@ $PY $D/collector.py --member <userid> --session <userid> --action collect \
 
 **WorkBuddy 数据链路(本机)**:空间/工作目录 Workspace/CWD → 会话 Session(workbuddy.db sessions: id/cwd/title)→ 对话流 .jsonl(`~/.workbuddy/projects/<转义路径>/*.jsonl`,文件名=session id)→ 任务 Task(`~/.workbuddy/tasks/<uuid>/*.json`)
 
-**CLI**:`--action select [--time-range week|month|all]`(默认 month 近一月)
+**CLI**:`--action select [--time-range week|month|all]`(CLI 缺省 month;但**专家交互时默认显式传 `--time-range all`** 罗列全部,见下方标准流程)
 
 **时间筛选规则(scan_workspace 内实现)**:
 - `week`:空间最后活动时间(目录 mtime)距今 ≤ 7 天
@@ -69,15 +77,18 @@ $PY $D/collector.py --member <userid> --session <userid> --action collect \
 - `real_path` 真实路径(取自 db cwd)、`path` 采集用目录
 - `sessions[]` 会话明细:标题(db title)+ 时间 + 大小 + **intent 真实意图**(从 jsonl `<user_query>` 提取)
 - `size_mb`、`last_activity`、`session_count`
+- **已知限制(如实)**:当前 `select` 输出**不含 `is_customer` 字段**——「客户」标注依赖该字段,待后续接入客户(品牌)清单/空间标记后生效;模板渲染时已做字段兼容(有 `is_customer` 则显示客户标,无则不显示,不影响勾选/复制)
 
 **专家交互(范围选择,标准流程,所有用户一致)**:
 1. **默认罗列全部**:默认 `--time-range all` 加载用户**全部**空间/任务,不做预筛选、不做精选;仅当用户明确要求缩小范围(如"只看近一个月")才用 `week`/`month`
-2. **展示形式:交互式详情卡片(必须)**:范围列表用 WorkBuddy 交互组件渲染,包含:
-   - 顶部时间筛选「近一周 / 近一月 / 全部时间」(默认选中「全部时间」)
-   - 搜索框(标题/路径/意图)
-   - 每行:勾选框 + 编号 + 标题(优先会话标题)+ 真实路径 + 会话数 + 大小 + 意图预览;客户类标「客户」
-   - 底部:「复制所选编号」「全选当前」「清空选择」;复制后**提示用户把编号粘贴到对话发送给专家**
-   - 无法渲染交互卡片时降级为会话框编号列表,但**必须全部列出、不遗漏**,仍带标题/路径/意图/多选
+2. **展示形式:交互式详情卡片(必须,使用固化模板)**:范围列表**必须使用本 skill 固化的交互卡片模板 `assets/scope_picker.html`** 渲染(WorkBuddy 交互组件),**不得现场手写、不得只用纯文本编号列表**。渲染步骤:
+   - 运行 `--action select --time-range all` 拿数据
+   - 读取 `assets/scope_picker.html`,将其中占位符 `__SCOPE_DATA__` 替换为 select 输出的 JSON(`{"items":[{no,title,path,session_count,size_mb,intent,is_customer,last_activity}...],"time_range":"all"}`)
+   - 用 WorkBuddy 交互组件渲染替换后的 HTML 片段
+   - 模板内置:顶部时间筛选「近一周/近一月/全部时间」、搜索框、每行勾选框+编号+标题+真实路径+会话数+大小+意图预览、客户标「客户」、底部「复制所选编号/全选当前/清空选择」
+   - **复制按钮可靠性(模板已内置三级降级,无需专家额外处理)**:L1 `navigator.clipboard`(安全上下文)→ L2 `execCommand('copy')` → L3 展开只读输入框自动全选提示 Ctrl+C(100% 可用)。点击后必有状态反馈;若用户仍反馈复制失败,引导用户改用 L3 手动复制框,或在输入框内直接手输编号
+   - 复制后**提示用户把编号粘贴到对话发送给专家**
+   - 无法渲染交互卡片时(环境限制)降级为会话框编号列表,但**必须全部列出、不遗漏**,仍带标题/路径/意图/多选
 3. **多选**:≤4 用 WorkBuddy 选择组件;>4 用交互卡片(或编号列表)列出全部,回复编号可多选(逗号/空格/区间)
 4. 会话级可进一步勾选(标题/时间/大小/意图)
 5. 采集范围传多个 `--paths`(目录或 jsonl)

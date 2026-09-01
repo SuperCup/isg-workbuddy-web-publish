@@ -1,0 +1,250 @@
+<!--
+  知识采集 · 范围选择交互卡片(WorkBuddy 交互组件模板)
+  ============================================================
+  用法(专家渲染时, 固定流程, 所有用户一致):
+    1. 运行: collector.py --member <userid> --session <userid> --action select --time-range all
+    2. 读取本模板文件, 将占位符 __SCOPE_DATA__ 替换为 select 输出的 JSON:
+         {"items":[{ "no":1,"title":"...","path":"C:\\...","session_count":2,
+                     "size_mb":1.2,"intent":"用户原话","is_customer":true,
+                     "last_activity":"2026-09-01T10:00:00" }],
+          "time_range":"all"}
+    3. 用 WorkBuddy 交互组件渲染替换后的 HTML 片段(无需 <html>/<head>/<body>)
+  兼容: 模板自动兼容脚本输出字段差异——无 no 自动编号;标题取 title||name;
+        意图取 intent||sessions[0].intent;客户标注仅当数据含 is_customer 时显示。
+  ============================================================
+  复制按钮可靠性(三级降级, 已内置):
+    L1: navigator.clipboard.writeText()  (需 HTTPS/localhost 安全上下文, 现代浏览器)
+    L2: document.execCommand('copy')     (旧版兼容, 需用户点击手势)
+    L3: 展开只读输入框自动全选 + 提示 Ctrl+C  (100% 可用, 任何环境兜底)
+  点击后必有状态反馈(成功/失败/兜底), 不会出现"点了没反应"。
+-->
+
+<div id="kc-scope-picker" style="font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;max-width:720px;margin:0 auto;color:#1f2328;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;padding:14px 16px;line-height:1.5;">
+  <style>
+    #kc-scope-picker{--kcp-bd:#d0d7de;--kcp-bg:#ffffff;--kcp-fg:#1f2328;--kcp-sub:#57606a;--kcp-accent:#0969da;--kcp-row-hover:#f6f8fa;}
+    #kc-scope-picker .kcp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+    #kc-scope-picker .kcp-title{font-size:15px;font-weight:600;}
+    #kc-scope-picker .kcp-tabs{display:flex;border:1px solid var(--kcp-bd);border-radius:6px;overflow:hidden;font-size:12px;}
+    #kc-scope-picker .kcp-tab{padding:4px 10px;cursor:pointer;border:none;background:transparent;color:var(--kcp-sub);}
+    #kc-scope-picker .kcp-tab.on{background:var(--kcp-accent);color:#fff;}
+    #kc-scope-picker .kcp-search{width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid var(--kcp-bd);border-radius:6px;font-size:13px;margin-bottom:10px;background:var(--kcp-bg);color:var(--kcp-fg);}
+    #kc-scope-picker .kcp-list{max-height:340px;overflow:auto;border:1px solid var(--kcp-bd);border-radius:6px;margin-bottom:10px;}
+    #kc-scope-picker .kcp-row{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-bottom:1px solid var(--kcp-bd);font-size:13px;cursor:default;}
+    #kc-scope-picker .kcp-row:last-child{border-bottom:none;}
+    #kc-scope-picker .kcp-row:hover{background:var(--kcp-row-hover);}
+    #kc-scope-picker .kcp-row.sel{background:#ddf4ff;}
+    #kc-scope-picker .kcp-cb{margin-top:2px;flex:0 0 auto;}
+    #kc-scope-picker .kcp-main{flex:1;min-width:0;}
+    #kc-scope-picker .kcp-t{font-weight:600;word-break:break-all;}
+    #kc-scope-picker .kcp-cust{display:inline-block;margin-left:6px;padding:0 6px;border-radius:4px;background:#fff1e5;color:#bc4c00;font-size:11px;border:1px solid #ffd8a8;vertical-align:1px;}
+    #kc-scope-picker .kcp-p{color:var(--kcp-sub);font-size:12px;word-break:break-all;margin-top:2px;}
+    #kc-scope-picker .kcp-meta{color:var(--kcp-sub);font-size:11px;margin-top:3px;}
+    #kc-scope-picker .kcp-intent{color:var(--kcp-sub);font-size:12px;margin-top:3px;background:var(--kcp-row-hover);border-radius:4px;padding:3px 6px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+    #kc-scope-picker .kcp-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    #kc-scope-picker .kcp-btn{padding:5px 12px;border:1px solid var(--kcp-bd);border-radius:6px;font-size:13px;cursor:pointer;background:var(--kcp-bg);color:var(--kcp-fg);}
+    #kc-scope-picker .kcp-btn:hover{background:var(--kcp-row-hover);}
+    #kc-scope-picker .kcp-btn.primary{background:var(--kcp-accent);border-color:var(--kcp-accent);color:#fff;}
+    #kc-scope-picker .kcp-btn.primary:hover{filter:brightness(1.1);}
+    #kc-scope-picker .kcp-btn:disabled{opacity:.5;cursor:not-allowed;}
+    #kc-scope-picker .kcp-cnt{font-size:12px;color:var(--kcp-sub);margin-left:auto;}
+    #kc-scope-picker .kcp-status{margin-top:8px;padding:6px 10px;border-radius:6px;font-size:12px;display:none;}
+    #kc-scope-picker .kcp-status.ok{display:block;background:#dafbe1;color:#116329;border:1px solid #aceebb;}
+    #kc-scope-picker .kcp-status.warn{display:block;background:#fff8c5;color:#7d4e00;border:1px solid #ffd33d;}
+    #kc-scope-picker .kcp-status.err{display:block;background:#ffebe9;color:#cf222e;border:1px solid #ff8182;}
+    #kc-scope-picker .kcp-manual{display:none;margin-top:8px;padding:8px 10px;border:1px dashed var(--kcp-accent);border-radius:6px;font-size:12px;}
+    #kc-scope-picker .kcp-manual.show{display:block;}
+    #kc-scope-picker .kcp-manual input{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--kcp-bd);border-radius:5px;font-size:13px;margin-top:4px;background:var(--kcp-bg);color:var(--kcp-fg);}
+    @media (prefers-color-scheme: dark){
+      #kc-scope-picker{--kcp-bd:#3d444d;--kcp-bg:#0d1117;--kcp-fg:#e6edf3;--kcp-sub:#9198a1;--kcp-accent:#4493f8;--kcp-row-hover:#161b22;}
+      #kc-scope-picker .kcp-row.sel{background:#12273d;}
+      #kc-scope-picker .kcp-cust{background:#3d1d00;color:#ffa657;border-color:#703800;}
+      #kc-scope-picker .kcp-status.ok{background:#12281b;color:#3fb950;border-color:#238636;}
+      #kc-scope-picker .kcp-status.warn{background:#2d1b00;color:#e3b341;border-color:#7d4e00;}
+      #kc-scope-picker .kcp-status.err{background:#2d0f12;color:#ff7b72;border-color:#da3633;}
+    }
+  </style>
+
+  <div class="kcp-head">
+    <span class="kcp-title">请选择要采集的空间/任务</span>
+    <div class="kcp-tabs">
+      <button type="button" class="kcp-tab" data-range="all">全部时间</button>
+      <button type="button" class="kcp-tab" data-range="month">近一月</button>
+      <button type="button" class="kcp-tab" data-range="week">近一周</button>
+    </div>
+  </div>
+  <input type="text" class="kcp-search" placeholder="搜索标题 / 路径 / 意图关键字…">
+  <div class="kcp-list"></div>
+  <div class="kcp-tools">
+    <button type="button" class="kcp-btn primary" id="kcp-copy">复制所选编号</button>
+    <button type="button" class="kcp-btn" id="kcp-all">全选当前</button>
+    <button type="button" class="kcp-btn" id="kcp-none">清空选择</button>
+    <span class="kcp-cnt">已选 <b id="kcp-n">0</b> 项</span>
+  </div>
+  <div class="kcp-status" id="kcp-status"></div>
+  <div class="kcp-manual" id="kcp-manual">
+    当前环境无法自动复制，编号已填入下方输入框并自动选中，请按 <b>Ctrl+C</b>（Mac 为 Cmd+C）复制后，粘贴到对话发送给专家：
+    <input type="text" id="kcp-manual-input" readonly>
+  </div>
+
+  <script>
+  (function(){
+    // ---- 数据注入(占位符由专家替换为 select 输出 JSON) ----
+    var DATA = __SCOPE_DATA__;
+    if (!DATA || !DATA.items) { DATA = {items: [], time_range: "all"}; }
+    var items = DATA.items || [];
+    var curRange = DATA.time_range || "all";
+
+    // 兼容 collector.py 实际输出字段:
+    //  - 无顶层 title → 用 name(展示名: 单会话=会话标题/多会话=可读目录名)
+    //  - 无顶层 intent → 取第一条会话 intent
+    //  - 无 no → 按顺序自动编号
+    items.forEach(function(it, i){
+      if (it.no == null) it.no = i + 1;
+      it.title = it.title || it.name || it.path || ('项目 ' + it.no);
+      if (!it.intent && it.sessions && it.sessions.length) it.intent = it.sessions[0].intent || '';
+    });
+
+    var listEl = document.querySelector('#kc-scope-picker .kcp-list');
+    var searchEl = document.querySelector('#kc-scope-picker .kcp-search');
+    var statusEl = document.getElementById('kcp-status');
+    var manualEl = document.getElementById('kcp-manual');
+    var manualInput = document.getElementById('kcp-manual-input');
+    var nEl = document.getElementById('kcp-n');
+    var sel = {};   // 勾选集合(按 no)
+
+    function fmtSize(mb){ return (mb==null)?'': (mb>=1024 ? (mb/1024).toFixed(1)+' GB' : mb.toFixed(1)+' MB'); }
+
+    function inRange(it){
+      if (curRange === 'all') return true;
+      if (!it.last_activity) return true; // 无时间信息时恒显示, 不遗漏
+      var t = new Date(it.last_activity.replace(' ','T'));
+      if (isNaN(t)) return true;
+      var limit = curRange === 'week' ? 7 : 30;
+      return (Date.now() - t.getTime()) <= limit*86400000 + 86400000; // 含当日, 宽松1天
+    }
+    function matchSearch(it, kw){
+      if (!kw) return true;
+      kw = kw.toLowerCase();
+      return (it.title||'').toLowerCase().indexOf(kw)>=0 ||
+             (it.path||'').toLowerCase().indexOf(kw)>=0 ||
+             (it.intent||'').toLowerCase().indexOf(kw)>=0;
+    }
+    function visibleItems(){
+      var kw = searchEl.value.trim();
+      return items.filter(function(it){ return inRange(it) && matchSearch(it, kw); });
+    }
+    function render(){
+      var vis = visibleItems();
+      listEl.innerHTML = '';
+      if (!vis.length){ listEl.innerHTML = '<div style="padding:14px;color:#57606a;font-size:13px;">当前筛选下没有空间/任务</div>'; }
+      vis.forEach(function(it){
+        var row = document.createElement('div');
+        row.className = 'kcp-row' + (sel[it.no] ? ' sel' : '');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.className = 'kcp-cb'; cb.checked = !!sel[it.no];
+        cb.addEventListener('change', function(){
+          if (cb.checked) sel[it.no] = 1; else delete sel[it.no];
+          row.classList.toggle('sel', cb.checked);
+          updateCount();
+        });
+        var main = document.createElement('div'); main.className = 'kcp-main';
+        var t = document.createElement('div'); t.className = 'kcp-t';
+        t.textContent = it.no + '. ' + it.title;
+        if (it.is_customer){ var c = document.createElement('span'); c.className='kcp-cust'; c.textContent='客户'; t.appendChild(c); }
+        var p = document.createElement('div'); p.className = 'kcp-p';
+        p.textContent = it.path || '';
+        var meta = document.createElement('div'); meta.className = 'kcp-meta';
+        meta.textContent = (it.session_count!=null ? it.session_count+' 会话 · ' : '') + fmtSize(it.size_mb);
+        main.appendChild(t); main.appendChild(p); main.appendChild(meta);
+        if (it.intent){
+          var iv = document.createElement('div'); iv.className = 'kcp-intent';
+          iv.textContent = '意图: ' + it.intent; main.appendChild(iv);
+        }
+        row.appendChild(cb); row.appendChild(main);
+        row.addEventListener('click', function(e){
+          if (e.target === cb) return;
+          cb.checked = !cb.checked;
+          if (cb.checked) sel[it.no] = 1; else delete sel[it.no];
+          row.classList.toggle('sel', cb.checked);
+          updateCount();
+        });
+        listEl.appendChild(row);
+      });
+      updateCount();
+    }
+    function updateCount(){
+      var n = Object.keys(sel).length;
+      nEl.textContent = n;
+    }
+    function setStatus(msg, kind){
+      statusEl.className = 'kcp-status ' + (kind||'ok');
+      statusEl.textContent = msg;
+    }
+    function showManual(ids){
+      manualInput.value = ids;
+      manualEl.classList.add('show');
+      manualInput.focus(); manualInput.select();
+      setStatus('当前环境无法自动复制，请用下方输入框手动复制（已自动选中）', 'warn');
+    }
+    function selectedIds(){
+      var nos = items.filter(function(it){ return sel[it.no]; }).map(function(it){ return it.no; });
+      return nos.sort(function(a,b){return a-b;}).join(',');
+    }
+    // ---- 复制: 三级降级 ----
+    function copyIds(){
+      var ids = selectedIds();
+      if (!ids){ setStatus('请先勾选要采集的空间/任务', 'warn'); return; }
+      // L1: 现代剪贴板 API(仅安全上下文可用)
+      if (navigator.clipboard && window.isSecureContext){
+        navigator.clipboard.writeText(ids).then(function(){
+          setStatus('已复制所选编号: ' + ids + '  →  请粘贴到对话发送给专家', 'ok');
+        }).catch(function(){
+          copyFallback(ids);
+        });
+        return;
+      }
+      copyFallback(ids);
+    }
+    function copyFallback(ids){
+      // L2: execCommand('copy')
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = ids;
+        ta.setAttribute('readonly','');
+        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch(e){ ok = false; }
+        document.body.removeChild(ta);
+        if (ok){ setStatus('已复制所选编号: ' + ids + '  →  请粘贴到对话发送给专家', 'ok'); return; }
+      } catch(e){}
+      // L3: 手动复制兜底(100% 可用)
+      showManual(ids);
+    }
+    // ---- 事件绑定 ----
+    document.getElementById('kcp-copy').addEventListener('click', copyIds);
+    document.getElementById('kcp-all').addEventListener('click', function(){
+      visibleItems().forEach(function(it){ sel[it.no] = 1; });
+      render();
+      setStatus('已全选当前筛选下的全部项目', 'ok');
+    });
+    document.getElementById('kcp-none').addEventListener('click', function(){
+      sel = {}; render();
+    });
+    document.querySelectorAll('#kc-scope-picker .kcp-tab').forEach(function(tab){
+      tab.addEventListener('click', function(){
+        curRange = tab.getAttribute('data-range');
+        document.querySelectorAll('#kc-scope-picker .kcp-tab').forEach(function(x){ x.classList.remove('on'); });
+        tab.classList.add('on');
+        render();
+      });
+    });
+    searchEl.addEventListener('input', render);
+    // 初始化: 选中默认时间范围 tab
+    var defTab = document.querySelector('#kc-scope-picker .kcp-tab[data-range="' + curRange + '"]');
+    if (defTab) defTab.classList.add('on');
+    render();
+  })();
+  </script>
+</div>
