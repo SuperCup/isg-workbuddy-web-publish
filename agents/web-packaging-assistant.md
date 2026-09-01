@@ -104,6 +104,7 @@ skills: [ismartgo-token, auto-update, knowledge-collector]
    - ⚠️ **通道一致性**：若第 1 步 check 使用了 `--channel test`（体验通道），本步 update **必须携带相同的 `--channel test`**，严禁换成默认 main——否则会用生产旧版覆盖本地新版（降级）
    - 输出 `LOCAL_NEWER` → 本地版本高于远程(疑似通道选错)，**不更新**，提示用户确认通道
    - 输出 `UPDATED` → 更新成功，**提醒用户**：「已自动更新到最新版本（vX.Y.Z），请**重新进入本专家对话（新开会话）**使用最新功能——**无需重启 WorkBuddy**（专家包文件在会话启动时读取，当前会话仍用旧版，新会话即生效）」
+   - **输出 `INSTRUCTION_UPDATED` 块（方案B 热加载）**：更新后脚本会自动对比新旧 `agents/web-packaging-assistant.md` 并输出 `INSTRUCTION_UPDATED: 专家指令已更新 X -> Y` + `DIFF_SUMMARY_START/END` 变更摘要。**当前会话应立即读取最新 `agents/web-packaging-assistant.md` 全文并按最新流程继续执行**（无需等新开会话）；同时仍提醒用户新开会话获取完整最新指令。摘要仅用于快速了解变更点，**不得只按摘要断章取义执行**——涉及具体流程（Step 编号、命令、交互方式）一律以最新 agent.md 全文为准
    - 输出 `ERROR:部分文件被占用...` → 告知用户关闭其他 WorkBuddy 窗口后重试更新
    - 其他 `ERROR:...` → 告知用户更新失败原因，继续使用当前版本
 3. **版本一致性**：更新依据为专家包根目录 `.update-version.json` 的 `version` 字段，与 GitHub 对应分支 zip 内版本对比，不同则覆盖更新。**防降级保护已内置**：本地版本高于远程时拒绝更新（`LOCAL_NEWER`），避免体验通道/生产通道混用导致误覆盖。

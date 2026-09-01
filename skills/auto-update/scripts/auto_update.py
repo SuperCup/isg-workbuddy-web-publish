@@ -27,8 +27,14 @@ WEB部署Agent(小包)专家包 — 自动更新脚本
     NO_USER_ID             : 无法识别当前用户,保守不更新
     NOT_AUTHOR_NO_BRANCH   : 非作者尝试切换分支被拒绝(理论上不会发生)
     ERROR:<原因>           : 出错(网络/解析等)
+
+指令热加载(方案B):update 成功后,若 agents/web-packaging-assistant.md 有内容变化,
+额外输出 INSTRUCTION_UPDATED 块(含新旧版本号与变更摘要)。当前会话 Agent 应读取
+最新 agents/web-packaging-assistant.md 并按最新流程继续执行(无需等待新开会话);
+完整指令仍建议用户新开会话获取。
 """
 
+import difflib
 import json
 import os
 import re
@@ -255,6 +261,56 @@ def _resolve_channel(uid: str) -> str:
     return DEFAULT_BRANCH
 
 
+def _read_file(path: Path) -> str:
+    """读取文本文件,不存在/失败返回空串"""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _build_changes_summary(
+    old_agent: str, new_agent: str, old_readme: str, new_readme: str,
+    old_ver: dict, new_ver: dict, max_lines: int = 40,
+) -> str:
+    """对比新旧指令文件,生成变更摘要块(方案B:更新后热加载指引)。
+
+    仅对 agents/web-packaging-assistant.md(主指令)做逐行 diff;
+    README 只报告是否有变化,不展开(避免刷屏)。
+    返回可直接 log 的多行字符串;无变化返回空串。
+    """
+    if old_agent == new_agent:
+        return ""
+    old_lines = old_agent.splitlines()
+    new_lines = new_agent.splitlines()
+    diff = list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=0))
+    # 只保留内容变更行(+/-,剔除 ---/+++ 文件头与 @@ 块头),过滤纯空行噪声
+    changes = []
+    for l in diff:
+        if l.startswith(("+++", "---", "@@", "\\ No newline")):
+            continue
+        if not (l.startswith("+") or l.startswith("-")):
+            continue
+        if l.strip() in ("+", "-"):
+            continue
+        changes.append(l)
+    if not changes:
+        return ""
+    if len(changes) > max_lines:
+        changes = changes[:max_lines] + [f"...(共 {len(changes)} 处变更,已截断,请读取最新 agent.md 全文)"]
+    old_v = old_ver.get("version", "?")
+    new_v = new_ver.get("version", "?")
+    readme_note = " (README.md 也有更新)" if old_readme != new_readme else ""
+    lines = [
+        f"INSTRUCTION_UPDATED: 专家指令已更新 {old_v} -> {new_v}{readme_note}",
+        "当前会话请按最新 agents/web-packaging-assistant.md 执行;完整指令新开会话生效",
+        "DIFF_SUMMARY_START",
+    ]
+    lines.extend(changes)
+    lines.append("DIFF_SUMMARY_END")
+    return "\n".join(lines)
+
+
 def cmd_check() -> int:
     uid = get_current_user_id()
     if not uid:
@@ -313,12 +369,24 @@ def cmd_update() -> int:
         if local_ver.get("version") == remote_ver.get("version"):
             log("UP_TO_DATE")
             return 0
+        # 方案B:更新前记录旧版指令内容(用于更新后输出变更摘要,支持当前会话热加载)
+        root = get_expert_root()
+        old_agent = _read_file(root / "agents" / "web-packaging-assistant.md")
+        old_readme = _read_file(root / "README.md")
         fail = apply_update(src_dir)
         # 更新成功后, 把实际来源分支写回本地版本记录(branch 字段),
         # 保证本地 .update-version.json 的 branch 反映真实通道(而非包内写死的 main)。
         # 注意: 只写 branch, version 以 apply_update 刚覆盖的包内版本为准(不得用更新前的 local_ver 覆盖)。
         if fail == 0:
             _write_local_branch(branch)
+            # 方案B:输出指令变更摘要(热加载指引),无变化则静默
+            new_agent = _read_file(root / "agents" / "web-packaging-assistant.md")
+            new_readme = _read_file(root / "README.md")
+            summary = _build_changes_summary(
+                old_agent, new_agent, old_readme, new_readme, local_ver, remote_ver
+            )
+            if summary:
+                log(summary)
     except Exception as e:
         log(f"ERROR:更新失败({e})")
         return 1
