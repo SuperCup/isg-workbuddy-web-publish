@@ -453,9 +453,10 @@ wx.updateTimelineShareData({
                                     ↓ 无效
                               检查缓存 Session → 有效? → 刷新 Token
                                     ↓ 无效
-                              检查登录方式偏好 → 有偏好? → 按偏好登录（auto 半隐式/manual 手动）
+                              检查登录方式偏好 → 有偏好? → 按偏好登录（http 纯HTTP/auto 半隐式/manual 手动）
                                     ↓ 无偏好
-                              展示两种登录方式让用户选择 → 记录偏好 → 执行登录 → 获取 Token
+                              默认纯HTTP登录（--method http）→ 执行登录 → 获取 Token
+                              （被风控/失败时降级 auto 半隐式 或 manual 手动浏览器）
 ```
 
 ### 凭据配置（仅首次需要）
@@ -470,15 +471,16 @@ python3 skills/ismartgo-token/scripts/token_manager.py save-credentials -u "账�
 
 **⚠️ 安全红线：账号密码等登录信息只存 WorkBuddy 本机 `~/.workbuddy/` 下，严禁写入专家包目录（agents/、skills/ 等），避免分享给他人时泄露。** 脚本回显账号时一律脱敏（首字符+***+尾字符），密码永不回显、不写日志。
 
-### 登录方式（两种，兼容）
+### 登录方式（三种，兼容，默认纯HTTP）
 
 | 方式 | 命令 | 用户参与 |
 |------|------|---------|
-| 手动浏览器 | `token_manager.py login` | 用户本人输入账号密码+验证码 |
-| 半隐式（默认推荐） | `token_manager.py login-smart --method auto` | 自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码 |
+| 纯HTTP（默认推荐） | `token_manager.py login-smart --method http` | 无浏览器接口直登；首次需邮箱/企微 4 位验证码，之后**信任设备(device)免验证码** |
+| 半隐式（浏览器） | `token_manager.py login-smart --method auto` | 自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码 |
+| 手动浏览器（兜底） | `token_manager.py login` | 用户本人输入账号密码+验证码 |
 
-- 会话失效且**未记录偏好**时，`login-smart` 会展示两种方式让用户选择，选择后自动记录到 `~/.workbuddy/ismartgo_config.json`
-- 已记录偏好后，**下次失效直接按偏好执行**，半隐式方式下只需用户提供验证码（凭据已存本机）
+- 会话失效且**未记录偏好**时，默认走纯HTTP（`--method http`）；被风控拦截或失败时降级 `auto` 半隐式，再不行 `manual` 手动浏览器
+- 已记录偏好后，**下次失效直接按偏好执行**；纯HTTP 方式下已保存信任设备则**无需验证码**，其余方式只需用户提供验证码（凭据已存本机）
 - 验证码为 4 位数字（发邮箱+企业微信），由 Agent 写入 `~/.workbuddy/ismartgo_captcha.txt` 供脚本轮询
 - 查看偏好：`token_manager.py pref`；清除全部（含凭据）：`token_manager.py clear`
 
@@ -506,7 +508,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
 
 ### 空间列表接口
 - **URL**：`https://agent.ismartgo.com/api/web/spaces`
-- **认证**：需要在已登录的浏览器会话中调用，或携带有效的 Session Cookie
+- **认证**：需要携带有效登录 Session（由 `token_manager.py` 自动管理会话 Cookie）
 - **用途**：获取当前用户可访问的所有空间（workspace），以及各空间下的 package 列表
 - **使用场景**：
   - 用户不确定有哪些空间/package 时，可通过此接口查询
@@ -545,7 +547,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
 |--------|------|--------------|
 | Python 3.8+ | 运行 token 脚本 | 引导用户安装 Python |
 | `requests` | token 脚本依赖 | `pip install requests` |
-| `playwright` + Chromium | SSO 自动登录 | `pip install playwright` + `playwright install chromium` |
+| `playwright` + Chromium | 仅半隐式/手动浏览器登录需要（纯HTTP登录不需要） | `pip install playwright` + `playwright install chromium` |
 | `ismartgo-token` Skill 脚本 | Token 管理 | 检查专家包完整性，缺失则提示重新安装专家包 |
 | 凭据配置 `~/.workbuddy/ismartgo_config.json` | SSO 凭据 | 引导运行 `save-credentials` 首次配置 |
 | 会话 Cookie `~/.workbuddy/ismartgo_session.json` | 登录态 | 由脚本自动续期，无需手动处理 |
@@ -590,12 +592,14 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
      11. workspace-k（包: pkg3）
      ```
    - 用户回复编号或名称后，确认选择并进入 Step 4（**不得**只展示前 4 个遗漏其余）
-3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **先判定登录方式偏好，再提醒用户选择**：
+3. **若返回"请求登录"**（本地无有效 SSO 会话）→ **先判定登录方式偏好，再执行登录**：
    - 执行 `python3 skills/ismartgo-token/scripts/token_manager.py login-smart`
-   - 脚本会自动判定：本地会话有效 → 直接继续；已记录登录方式偏好 → 按偏好执行；**从未选择过 → 展示两种方式让用户选择**：
-     - **方式 1 手动**：`login-smart --method manual`（弹出浏览器窗口，用户本人输入账号密码+验证码）
+   - 脚本会自动判定：本地会话有效 → 直接继续；已记录登录方式偏好 → 按偏好执行；**从未选择过 → 默认纯HTTP登录**：
+     - **方式 1 纯HTTP（默认）**：`login-smart --method http`（无浏览器接口直登；首次需邮箱/企微 4 位验证码，之后信任设备免验证码）
      - **方式 2 半隐式**：`login-smart --method auto`（自动填账号密码，用户只需提供邮箱/企微收到的 4 位验证码）
-   - 用户选择后偏好自动记录到 `~/.workbuddy/ismartgo_config.json`（WorkBuddy 本地，**绝不放专家包内**），**下次会话失效时直接按偏好执行，仅需用户提供验证码**
+     - **方式 3 手动**：`login-smart --method manual`（弹出浏览器窗口，用户本人输入账号密码+验证码）
+   - 纯HTTP 被风控拦截或失败时 → 降级 `auto` 半隐式，再不行 `manual` 手动浏览器
+   - 用户选择后偏好自动记录到 `~/.workbuddy/ismartgo_config.json`（WorkBuddy 本地，**绝不放专家包内**），**下次会话失效时直接按偏好执行，仅需用户提供验证码（纯HTTP+信任设备则免）**
    - 登录成功后**重新执行 list-spaces**，此时应能拿到列表并展示
 4. **如果没有可用 workspace** → 协助用户完成 workspace 创建：
    - 引导用户在管理后台 `https://agent.ismartgo.com/admin` 创建新 workspace
@@ -788,7 +792,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py set-access-type \
 | 页面空白/资源404 | 根路径 `/assets/...` | 改为相对路径，检查 base/publicPath |
 | 路由不匹配 | SPA 根路径路由 | Hash 路由或配置 base |
 | Token 获取失败（未配置） | 无凭据 | `save-credentials` |
-| Token 获取失败（二次验证） | 验证码 | 浏览器完成验证后重试 |
+| Token 获取失败（二次验证） | 验证码 | 提供邮箱/企微 4 位验证码（纯HTTP 或半隐式均可）；被风控时改手动浏览器完成一次登录固化信任设备 |
 | ZIP 结构不对 | 打进了外层目录 | 进入产物目录再 zip |
 
 ---
