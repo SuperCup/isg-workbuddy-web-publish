@@ -57,6 +57,7 @@ zip -r web-deploy-agent-expert.zip web-packaging-assistant \
 
 ## 版本
 
+- `1.5.3`：登录引导明确强调 **PMS 统一账号**——索取账号密码时向用户说明是登录 PMS/PMP 系统的同一套账号(非第三方平台账号),覆盖 agent.md 登录引导/凭据配置/Step 3 与 SKILL.md
 - `1.5.2`：新增 `create-workspace` 命令——创建 workspace(自动携带 `x-admin-token: sso` 头+登录Cookie+JSON body),成功输出 `WORKSPACE_CREATED`/重复编码等业务错误走 ERROR 分支;已实测通过;Step 3 无可用 workspace 时改走脚本创建(原引导管理后台)
 - `1.5.1`：修复 upload token 误缓存(invalid upload token)——登录时不再把 verify 响应 token 当上传 token,以 `/api/web/me/upload-token` 接口 GET/PUT 为准;方案B指令热加载(update 后输出 INSTRUCTION_UPDATED 变更摘要,当前会话可按最新指令继续执行)
 - `1.5.0`：删除微信分享卡片配置相关内容(4 大章节+Step 5a+FAQ 等);访问类型确认改为**构建前必做**(Step 5c);保留 `?v=` 通用缓存规避
