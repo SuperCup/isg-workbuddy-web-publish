@@ -1,6 +1,6 @@
 # WEB Deployment Agent（小包）
 
-WorkBuddy 专家插件：把前端项目打成符合 ismartgo 静态托管规范的 ZIP，自动处理相对路径与上传 Token，并通过 **对话收集** 配置微信/企微链接预览卡片（Open Graph）。
+WorkBuddy 专家插件：把前端项目打成符合 ismartgo 静态托管规范的 ZIP，自动处理相对路径与上传 Token，并在构建前确认访问类型（公开 / Token / 禁用）、上传后自动设置。
 
 ## 类型
 
@@ -9,8 +9,8 @@ Agent 型（单个 AI 专家）
 ## 功能
 
 - 检查并修复 Vite / Webpack / CRA / Vue CLI 的 `base` / `publicPath`，保证子目录可访问
-- 对话收集分享标题、描述、小图（300×300、≤10KB），注入极简 4 个 OG 标签（无 wecom-cli）
-- 上传后 curl 校验 HTML/图片可达性，交付带 `?v=` 的分享链以规避微信缓存
+- 构建前确认访问类型（公开 PUBLIC / Token 访问 TOKEN / 禁用 DISABLED），上传后自动设置
+- 上传后 curl 校验线上可达性
 - 通过 `ismartgo-token` Skill 自动获取上传 Token
 - **自动更新**：非作者用户使用时，自动从 GitHub 生产分支(main)检查并拉取最新版本，更新后重新进入专家对话即生效（无需重启 WorkBuddy）
 
@@ -31,8 +31,6 @@ Agent 型（单个 AI 专家）
 ## 使用示例
 
 - 帮我打包这个前端项目并上传到平台
-- 帮我配置微信分享卡片
-- 页面已部署但微信仍只显示链接，帮我排查
 
 ## 头像
 
