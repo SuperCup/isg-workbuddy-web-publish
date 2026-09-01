@@ -38,6 +38,9 @@ python3 scripts/token_manager.py get-token
 # 列出 workspace 及 package（选择上传目标前调用，主动展示给用户）
 python3 scripts/token_manager.py list-spaces
 
+# 创建 workspace（用户没有可用空间时调用；自动携带 x-admin-token: sso 头）
+python3 scripts/token_manager.py create-workspace --code <编码> --name <名称> [--description <描述>]
+
 # 设置 package 访问类型（上传成功后必做：公开PUBLIC/Token访问TOKEN/禁用DISABLED）
 python3 scripts/token_manager.py set-access-type --workspace <ws> --package <pkg> \
     --access-type PUBLIC|TOKEN|DISABLED [--access-token <token>] [--title <标题>] [--description <描述>]
@@ -60,6 +63,8 @@ python3 scripts/token_manager.py clear
 ```
 
 **重要：`list-spaces` 是主动拉取 workspace/package 列表的唯一入口。** 不要先询问用户有哪些 workspace/package，直接执行该命令获取列表并展示给用户选择。若返回"请求登录"，先执行 `login` 或 `login-auto` 完成登录，再重新执行 `list-spaces`。
+
+**创建空间（create-workspace）**：当用户没有任何可用 workspace 时，先询问**空间编码与名称**（编码建议短横线分隔英文，如 `brand-weekly`），执行 `create-workspace --code <编码> --name <名称>` 创建；成功输出 `WORKSPACE_CREATED: <编码>`；失败（如编码重复 `errcode 104 Duplicate entry`）输出 `ERROR: ...`，反馈用户换编码或改走管理后台创建。
 
 **访问类型说明（set-access-type）**：
 - `PUBLIC` 公开访问（默认）：任何人可通过链接访问

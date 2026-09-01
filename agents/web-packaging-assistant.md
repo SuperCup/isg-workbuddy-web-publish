@@ -271,6 +271,7 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
 | 接口 | 方法 | 用途 | 认证 |
 |------|------|------|------|
 | `/api/web/spaces` | GET | 获取空间列表（首页） | 登录 Session |
+| `/api/web/spaces` | POST | 创建空间（需 `x-admin-token: sso` 头） | 登录 Session + 管理员头 |
 | `/api/web/me/upload-token` | GET | 获取上传 Token | 登录 Session |
 | `/{workspace}/{package}/upload` | POST | 上传 ZIP 包 | URL Token 参数 |
 
@@ -283,13 +284,21 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token
   - 上传前检查目标 package 是否已存在
   - 列出已有部署供用户查看
 
+### 创建空间接口（已封装 create-workspace）
+- **URL**：`https://agent.ismartgo.com/api/web/spaces`（POST）
+- **认证**：登录 Session（`token_manager.py` 自动管理）+ 请求头 **`x-admin-token: sso`** + `Content-Type: application/json`
+- **请求体**：`{"code": "空间编码", "name": "空间名称", "description": "描述(可选)"}`
+- **命令**：`python3 skills/ismartgo-token/scripts/token_manager.py create-workspace --code <编码> --name <名称> [--description <描述>]`
+- **成功输出**：`WORKSPACE_CREATED: <编码>`；**失败**（如编码重复 `errcode 104 Duplicate entry`）：`ERROR: ...` + 退出码 1
+- **使用场景**：用户没有可用 workspace 时，先询问**编码与名称**（编码建议用短横线分隔的英文，如 `brand-weekly`），再执行命令创建
+
 ### 上传 Token 接口（自动管理）
 - **URL**：`https://agent.ismartgo.com/api/web/me/upload-token`
 - 由 `token_manager.py get-token` 自动获取，**不要手动调用**
 
 ### 上传接口
 - **URL 格式**：`https://agent.ismartgo.com/{workspace}/{package}/upload?token={token}`
-- **workspace**：**不默认 `test`**——先通过 spaces 接口获取用户可访问的 workspace 列表，供用户选择；无可用 workspace 时协助创建
+- **workspace**：**不默认 `test`**——先通过 spaces 接口获取用户可访问的 workspace 列表，供用户选择；无可用 workspace 时用 `create-workspace` 命令协助创建（见下）
 - **package**：先询问用户是**新建**（引导输入编码与名称）还是**覆盖已有 package**；不存在指定 package 时上传会自动创建
 - **token**：由 `token_manager.py get-token` 自动获取
 
@@ -381,9 +390,12 @@ python3 skills/ismartgo-token/scripts/token_manager.py get-token  # 验证授权
      - 退出码 1 + `ERROR:...` → 告知用户具体错误(如密码错误),请重新提供
    - 纯HTTP 失败(非验证码问题)→ 降级 `login-smart --method auto`(半隐式浏览器);再不行 `login`(手动浏览器)
    - 登录成功后**重新执行 list-spaces**,此时应能拿到列表并展示
-4. **如果没有可用 workspace** → 协助用户完成 workspace 创建：
-   - 引导用户在管理后台 `https://agent.ismartgo.com/admin` 创建新 workspace
-   - 或按平台规则通过 API/后台创建，创建完成后再继续
+4. **如果没有可用 workspace** → 询问用户**空间编码与名称**（编码建议短横线分隔英文，如 `brand-weekly`），执行脚本创建：
+   ```bash
+   python3 skills/ismartgo-token/scripts/token_manager.py create-workspace --code <编码> --name <名称> [--description <描述>]
+   ```
+   - 成功输出 `WORKSPACE_CREATED: <编码>` → 重新执行 list-spaces 确认后进入 Step 4
+   - 失败（编码重复等）→ 将 `ERROR` 信息反馈用户，请其换编码或改走管理后台 `https://agent.ismartgo.com/admin` 创建
 5. 用户确认 workspace 后进入 Step 4
 
 ### Step 4：选择 package（先询问新建 or 覆盖）

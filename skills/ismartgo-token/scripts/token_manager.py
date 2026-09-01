@@ -1440,6 +1440,54 @@ def set_access_type(workspace: str, package: str, access_type: str,
             "response": data}
 
 
+def create_workspace(code: str, name: str, description: str = "") -> dict:
+    """
+    创建 workspace（空间）。
+
+    接口: POST {BASE_URL}/api/web/spaces
+    请求头: x-admin-token: sso + 登录 Cookie(JSESSIONID) + Content-Type: application/json
+    body: {code, name, description}
+
+    返回: {"ok": True, "message": "..."} 或 {"ok": False, "message": "..."}
+    """
+    store = SessionStore()
+    data = store.load()
+    if not data:
+        return {"ok": False, "message": "未登录（无会话文件），请先执行 login 完成 SSO 登录。"}
+
+    cookies = data.get("cookies", [])
+    ok, renewed = _api_verify_session(cookies)
+    if not ok:
+        return {"ok": False, "message": "会话已失效（SSO cookie 过期），请先执行 login 完成一次浏览器登录。"}
+    _persist_renewed_cookies(renewed)
+
+    s = _build_session(renewed)
+    s.headers.update({
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        # 创建空间需管理员头（x-admin-token: sso）
+        "x-admin-token": "sso",
+    })
+    body = {
+        "code": code,
+        "name": name,
+        "description": description or "",
+    }
+    try:
+        resp = s.post(f"{BASE_URL}/api/web/spaces", json=body, allow_redirects=True, timeout=30)
+        data = resp.json()
+    except Exception as e:
+        return {"ok": False, "message": f"创建 workspace 失败: {e}"}
+
+    if data.get("errcode") == 106:
+        return {"ok": False, "message": "请求登录：接口需要有效会话，请先执行 login 完成浏览器登录后重试。"}
+    if data.get("errcode") not in (None, 0) and data.get("errcode") != 200:
+        # 重名/编码重复等业务错误原样返回，便于上层识别
+        return {"ok": False, "message": f"创建失败: {json.dumps(data, ensure_ascii=False)[:500]}"}
+    return {"ok": True, "message": f"workspace 已创建: {code} ({name})", "response": data}
+
+
 # ─── Playwright 辅助 ───────────────────────────────────
 
 def await_cookies(context) -> list:
@@ -1514,6 +1562,12 @@ if __name__ == "__main__":
     sub.add_parser("clear", help="清除所有缓存")
     sub.add_parser("status", help="查看状态")
     sub.add_parser("list-spaces", help="列出当前账号可访问的 workspace 及 package")
+    parser_space = sub.add_parser(
+        "create-workspace", help="创建 workspace（请求头含 x-admin-token: sso）"
+    )
+    parser_space.add_argument("--code", required=True, help="workspace 编码(如 AI-Create-Test)")
+    parser_space.add_argument("--name", required=True, help="workspace 名称")
+    parser_space.add_argument("--description", default="", help="描述(可选)")
     parser_access = sub.add_parser(
         "set-access-type", help="设置 package 访问类型(公开PUBLIC/Token访问TOKEN/禁用DISABLED)"
     )
@@ -1645,6 +1699,20 @@ if __name__ == "__main__":
                 print(f"workspace: {sp['workspace']} ({sp['name']}) [无 package]")
         if not spaces:
             print(result.get("message", "当前账号下没有可用 workspace。"))
+
+    elif args.cmd == "create-workspace":
+        result = create_workspace(
+            code=args.code,
+            name=args.name,
+            description=args.description,
+        )
+        if not result.get("ok"):
+            print(f"ERROR: {result['message']}", file=sys.stderr)
+            if "登录" in result["message"] or "会话" in result["message"]:
+                print_login_choices()
+            sys.exit(1)
+        print(f"WORKSPACE_CREATED: {args.code}")
+        print(result["message"])
 
     elif args.cmd == "set-access-type":
         result = set_access_type(

@@ -12,6 +12,7 @@ Agent 型（单个 AI 专家）
 - 构建前确认访问类型（公开 PUBLIC / Token 访问 TOKEN / 禁用 DISABLED），上传后自动设置
 - 上传后 curl 校验线上可达性
 - 通过 `ismartgo-token` Skill 自动获取上传 Token
+- 无可用 workspace 时可直接创建（`create-workspace` 命令，自动携带 `x-admin-token: sso` 头）
 - **自动更新**：非作者用户使用时，自动从 GitHub 生产分支(main)检查并拉取最新版本，更新后重新进入专家对话即生效（无需重启 WorkBuddy）
 
 ## 自动更新（v1.3.0 起）
